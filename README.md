@@ -2,7 +2,7 @@
 
 An autonomous multi-agent trading system where AI traders with different investment philosophies compete in the Indian stock market. Watch Warren (value investing), George (macro trading), Ray (systematic approach), and Cathie (crypto ETFs) make real-time trading decisions using LLMs and MCP servers.
 
-![Trading Floor Dashboard](https://via.placeholder.com/800x400?text=Trading+Dashboard)
+![Trading Floor Dashboard](images/trading.png)
 
 ## 🌟 Features
 

@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@modelcontextprotocol/server-brave-search": "^0.6.2",
+    "mcp-memory-libsql": "^0.0.15"
+  }
+}

@@ -1,22 +1,20 @@
-# accounts.py
-from pydantic import BaseModel
-import json
-from dotenv import load_dotenv
-from datetime import datetime
-from market import get_share_price
-from database import write_account, read_account, write_log
-import math
+# src/core/models.py
+"""Core data models for the trading system"""
 
-load_dotenv(override=True)
+from pydantic import BaseModel
+from datetime import datetime
+from typing import Optional
+
+from .database import write_account, read_account, write_log
+from .market import get_share_price
+from ..utils.formatting import fmt_inr
 
 INITIAL_BALANCE = 1_00_000.0  # default INR starting balance (₹100,000)
 SPREAD = 0.002  # 0.2% spread
 
-def fmt_inr(amount: float) -> str:
-    """Format amount in INR with rupee symbol and thousands separators."""
-    return f"₹{amount:,.2f}"
 
 class Transaction(BaseModel):
+    """Represents a single trading transaction"""
     symbol: str
     quantity: int
     price: float
@@ -24,6 +22,7 @@ class Transaction(BaseModel):
     rationale: str
 
     def total(self) -> float:
+        """Calculate total transaction value"""
         return float(self.quantity) * float(self.price)
     
     def __repr__(self):
@@ -31,6 +30,7 @@ class Transaction(BaseModel):
 
 
 class Account(BaseModel):
+    """Represents a trader's account with holdings and transaction history"""
     name: str
     balance: float
     strategy: str
@@ -39,7 +39,8 @@ class Account(BaseModel):
     portfolio_value_time_series: list[tuple[str, float]]
 
     @classmethod
-    def get(cls, name: str):
+    def get(cls, name: str) -> "Account":
+        """Get or create an account by name"""
         fields = read_account(name.lower())
         if not fields:
             fields = {
@@ -53,11 +54,12 @@ class Account(BaseModel):
             write_account(name, fields)
         return cls(**fields)
     
-    
-    def save(self):
+    def save(self) -> None:
+        """Persist account to database"""
         write_account(self.name.lower(), self.model_dump())
 
-    def reset(self, strategy: str):
+    def reset(self, strategy: str) -> None:
+        """Reset account to initial state with new strategy"""
         self.balance = INITIAL_BALANCE
         self.strategy = strategy
         self.holdings = {}
@@ -65,8 +67,8 @@ class Account(BaseModel):
         self.portfolio_value_time_series = []
         self.save()
 
-    def deposit(self, amount: float):
-        """ Deposit funds into the account. """
+    def deposit(self, amount: float) -> None:
+        """Deposit funds into the account"""
         if amount <= 0:
             raise ValueError("Deposit amount must be positive.")
         self.balance += amount
@@ -75,8 +77,8 @@ class Account(BaseModel):
         write_log(self.name, "account", msg)
         self.save()
 
-    def withdraw(self, amount: float):
-        """ Withdraw funds from the account, ensuring it doesn't go negative. """
+    def withdraw(self, amount: float) -> None:
+        """Withdraw funds from the account, ensuring it doesn't go negative"""
         if amount > self.balance:
             raise ValueError("Insufficient funds for withdrawal.")
         self.balance -= amount
@@ -86,7 +88,7 @@ class Account(BaseModel):
         self.save()
 
     def buy_shares(self, symbol: str, quantity: int, rationale: str) -> str:
-        """ Buy shares of a stock if sufficient funds are available. """
+        """Buy shares of a stock if sufficient funds are available"""
         if quantity <= 0:
             raise ValueError("Quantity must be positive.")
         price = get_share_price(symbol)
@@ -102,7 +104,13 @@ class Account(BaseModel):
         # Update holdings
         self.holdings[symbol] = self.holdings.get(symbol, 0) + quantity
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        transaction = Transaction(symbol=symbol, quantity=quantity, price=buy_price, timestamp=timestamp, rationale=rationale)
+        transaction = Transaction(
+            symbol=symbol, 
+            quantity=quantity, 
+            price=buy_price, 
+            timestamp=timestamp, 
+            rationale=rationale
+        )
         self.transactions.append(transaction)
         
         # Update balance
@@ -112,7 +120,7 @@ class Account(BaseModel):
         return "Completed. Latest details:\n" + self.report()
 
     def sell_shares(self, symbol: str, quantity: int, rationale: str) -> str:
-        """ Sell shares of a stock if the user has enough shares. """
+        """Sell shares of a stock if the user has enough shares"""
         if quantity <= 0:
             raise ValueError("Quantity must be positive.")
         holding_qty = self.holdings.get(symbol, 0)
@@ -128,7 +136,13 @@ class Account(BaseModel):
         if self.holdings[symbol] == 0:
             del self.holdings[symbol]
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        transaction = Transaction(symbol=symbol, quantity=-quantity, price=sell_price, timestamp=timestamp, rationale=rationale)
+        transaction = Transaction(
+            symbol=symbol, 
+            quantity=-quantity, 
+            price=sell_price, 
+            timestamp=timestamp, 
+            rationale=rationale
+        )
         self.transactions.append(transaction)
 
         # Update balance
@@ -137,33 +151,34 @@ class Account(BaseModel):
         write_log(self.name, "account", f"Sold {quantity} of {symbol} @ {fmt_inr(sell_price)} for {fmt_inr(total_proceeds)}")
         return "Completed. Latest details:\n" + self.report()
 
-    def calculate_portfolio_value(self):
-        """ Calculate the total value of the user's portfolio. """
+    def calculate_portfolio_value(self) -> float:
+        """Calculate the total value of the user's portfolio"""
         total_value = float(self.balance)
         for symbol, quantity in self.holdings.items():
             total_value += get_share_price(symbol) * quantity
         return float(round(total_value, 2))
 
-    def calculate_profit_loss(self, portfolio_value: float):
-        """ Calculate profit or loss from the initial spend. """
+    def calculate_profit_loss(self, portfolio_value: float) -> float:
+        """Calculate profit or loss from the initial spend"""
         initial_spend = sum((t.price * t.quantity) for t in self.transactions if t.quantity > 0)
         return float(round(portfolio_value - (initial_spend - sum((-t.price * t.quantity) for t in self.transactions if t.quantity < 0)), 2))
 
-    def get_holdings(self):
-        """ Report the current holdings of the user. """
+    def get_holdings(self) -> dict[str, int]:
+        """Report the current holdings of the user"""
         return self.holdings
 
-    def get_profit_loss(self):
-        """ Report the user's profit or loss at any point in time. """
+    def get_profit_loss(self) -> float:
+        """Report the user's profit or loss at any point in time"""
         pv = self.calculate_portfolio_value()
         return self.calculate_profit_loss(pv)
 
-    def list_transactions(self):
-        """ List all transactions made by the user. """
+    def list_transactions(self) -> list[dict]:
+        """List all transactions made by the user"""
         return [transaction.model_dump() for transaction in self.transactions]
     
     def report(self) -> str:
-        """ Return a json string representing the account.  """
+        """Return a json string representing the account"""
+        import json
         portfolio_value = self.calculate_portfolio_value()
         self.portfolio_value_time_series.append((datetime.now().strftime("%Y-%m-%d %H:%M:%S"), portfolio_value))
         self.save()
@@ -176,13 +191,13 @@ class Account(BaseModel):
         return json.dumps(data)
     
     def get_strategy(self) -> str:
-        """ Return the strategy of the account """
-        write_log(self.name, "account", f"Retrieved strategy")
+        """Return the strategy of the account"""
+        write_log(self.name, "account", "Retrieved strategy")
         return self.strategy
     
     def change_strategy(self, strategy: str) -> str:
-        """ At your discretion, if you choose to, call this to change your investment strategy for the future """
+        """At your discretion, if you choose to, call this to change your investment strategy for the future"""
         self.strategy = strategy
         self.save()
-        write_log(self.name, "account", f"Changed strategy")
+        write_log(self.name, "account", "Changed strategy")
         return "Changed strategy"

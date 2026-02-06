@@ -1,4 +1,4 @@
-# mcp_params.py
+# src/agents/mcp_config.py
 import os
 from dotenv import load_dotenv
 
@@ -7,13 +7,13 @@ load_dotenv(override=True)
 GROWW_API_KEY = os.getenv("GROWW_API_KEY")
 
 # If you have a Groww MCP package (unlikely public), you could switch to uvx similar to polygon.
-# Otherwise we use the local Python market_server (uv run market_server.py)
-market_mcp = {"command": "uv", "args": ["run", "market_server.py"]}
+# Otherwise we use the local Python market_server (uv run src/mcp_servers/market_server.py)
+market_mcp = {"command": "uv", "args": ["run", "-m", "src.mcp_servers.market_server"]}
 
 # The full set of MCP servers for the trader: Accounts, Push Notification and the Market
 trader_mcp_server_params = [
-    {"command": "uv", "args": ["run", "accounts_server.py"]},
-    {"command": "uv", "args": ["run", "push_server.py"]},
+    {"command": "uv", "args": ["run", "-m", "src.mcp_servers.accounts_server"]},
+    {"command": "uv", "args": ["run", "-m", "src.mcp_servers.push_server"]},
     market_mcp,
 ]
 

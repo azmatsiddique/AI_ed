@@ -1,6 +1,6 @@
-# templates.py
+# src/agents/templates.py
 from datetime import datetime
-from market import get_share_price
+from ..core.market import get_share_price
 
 # Note for traders: explain market data availability (Groww)
 note = "You have access to market data via the Groww adapter; prices are reported in INR (₹). Use your get_share_price tool to retrieve the latest price."

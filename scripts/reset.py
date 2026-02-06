@@ -1,4 +1,5 @@
-from accounts import Account
+# scripts/reset.py
+from src.core.models import Account
 
 waren_strategy = """
 You are Warren, and you are named in homage to your role model, Warren Buffett.

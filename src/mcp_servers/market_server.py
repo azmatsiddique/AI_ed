@@ -1,5 +1,6 @@
+# src/mcp_servers/market_server.py
 from mcp.server.fastmcp import FastMCP
-from market import get_share_price
+from src.core.market import get_share_price
 
 mcp = FastMCP("market_server")
 

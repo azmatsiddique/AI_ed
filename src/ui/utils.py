@@ -1,3 +1,4 @@
+# src/ui/utils.py
 from enum import Enum
 
 css = """

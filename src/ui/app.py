@@ -1,11 +1,12 @@
-# app.py
+# src/ui/app.py
 import gradio as gr
-from util import css, js, Color
+from .utils import css, js, Color
 import pandas as pd
-from trading_floor import names, lastnames, short_model_names
+from ..services.trading_floor import names, lastnames, short_model_names
 import plotly.express as px
-from accounts import Account, fmt_inr
-from database import read_log
+from ..core.models import Account
+from ..utils.formatting import fmt_inr
+from ..core.database import read_log
 
 mapper = {
     "trace": Color.WHITE,

@@ -1,6 +1,6 @@
-# accounts_server.py
+# src/mcp_servers/accounts_server.py
 from mcp.server.fastmcp import FastMCP
-from accounts import Account
+from src.core.models import Account
 
 mcp = FastMCP("accounts_server")
 

@@ -1,10 +1,11 @@
-from traders import Trader
+# src/services/trading_floor.py
+from ..agents.trader import Trader
 from typing import List
 import asyncio
-from tracers import LogTracer
+from ..utils.tracers import LogTracer
 from agents import add_trace_processor
 try:
-    from market import is_market_open as _is_market_open
+    from ..core.market import is_market_open as _is_market_open
 except Exception:
     # Fallback: run regardless if market helper isn't available
     def _is_market_open() -> bool:

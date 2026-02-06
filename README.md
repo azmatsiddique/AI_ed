@@ -114,19 +114,19 @@ USE_MANY_MODELS=false  # Set to true to use different models for each trader
 
 ### Initialize Accounts
 ```bash
-uv run reset.py
+uv run scripts/reset.py
 ```
 This creates accounts for all four traders with starting balance of ₹100,000 each.
 
 ### Start the Trading Floor
 ```bash
-uv run trading_floor.py
+uv run -m src.services.trading_floor
 ```
 This starts the autonomous trading loop. Agents will trade every N minutes (default: 60).
 
 ### Launch the Dashboard
 ```bash
-uv run app.py
+uv run -m src.ui.app
 ```
 Open your browser to view the live dashboard with real-time updates.
 
@@ -134,7 +134,7 @@ Open your browser to view the live dashboard with real-time updates.
 
 **Test individual trader:**
 ```python
-from traders import Trader
+from src.agents.trader import Trader
 import asyncio
 
 trader = Trader("Warren", "Patience", "gpt-4o-mini")
@@ -143,7 +143,7 @@ asyncio.run(trader.run())
 
 **Test account operations:**
 ```python
-from accounts import Account
+from src.core.models import Account
 
 account = Account.get("warren")
 print(account.report())
@@ -153,21 +153,38 @@ print(account.report())
 
 ```
 .
-├── accounts.py           # Account management and trading logic
-├── accounts_client.py    # MCP client for accounts
-├── accounts_server.py    # MCP server exposing account tools
-├── app.py               # Gradio dashboard UI
-├── database.py          # SQLite operations
-├── market.py            # Groww market data adapter
-├── market_server.py     # MCP server for market data
-├── traders.py           # Individual trader agent logic
-├── trading_floor.py     # Main orchestrator
-├── templates.py         # Prompt templates
-├── tracers.py          # Logging and tracing
-├── mcp_params.py       # MCP server configuration
-├── push_server.py      # Push notification server
-├── reset.py            # Initialize/reset trader accounts
-└── util.py             # UI utilities
+├── src/
+│   ├── core/                 # Core business logic
+│   │   ├── models.py        # Account and Transaction models
+│   │   ├── database.py      # SQLite operations
+│   │   └── market.py        # Groww market data adapter
+│   ├── agents/              # AI agent components
+│   │   ├── trader.py        # Trader agent logic
+│   │   ├── templates.py     # Prompt templates
+│   │   └── mcp_config.py    # MCP server configuration
+│   ├── services/            # Service layer
+│   │   ├── account_service.py  # Account management
+│   │   └── trading_floor.py    # Trading orchestration
+│   ├── mcp_servers/         # MCP server implementations
+│   │   ├── accounts_server.py  # Account tools MCP server
+│   │   ├── accounts_client.py  # Account MCP client
+│   │   ├── market_server.py    # Market data MCP server
+│   │   └── push_server.py      # Push notifications
+│   ├── ui/                  # User interface
+│   │   ├── app.py          # Gradio dashboard
+│   │   └── utils.py        # UI utilities
+│   └── utils/               # Shared utilities
+│       ├── formatting.py   # Formatting helpers (fmt_inr)
+│       └── tracers.py      # Logging and tracing
+├── scripts/                 # Standalone scripts
+│   ├── reset.py            # Initialize/reset accounts
+│   └── run_trader.py       # Manual trader testing
+├── tests/                   # Test files (future)
+├── .env
+├── .gitignore
+├── README.md
+├── requirements.txt
+└── pyproject.toml          # Project configuration
 ```
 
 ## 🔧 Configuration

@@ -1,29 +1,22 @@
 from agents import TracingProcessor, Trace, Span
 from ..core.database import write_log
-import secrets
-import string
-
-ALPHANUM = string.ascii_lowercase + string.digits 
+import uuid
 
 def make_trace_id(tag: str) -> str:
     """
-    Return a string of the form 'trace_<tag><random>',
-    where the total length after 'trace_' is 32 chars.
+    Return a trace ID incorporating UUIDv4: 'trace_<tag>_<uuid4_hex>'.
     """
-    tag += "0"
-    pad_len = 32 - len(tag)
-    random_suffix = ''.join(secrets.choice(ALPHANUM) for _ in range(pad_len))
-    return f"trace_{tag}{random_suffix}"
+    clean_tag = tag.lower().strip()
+    return f"trace_{clean_tag}_{uuid.uuid4().hex}"
 
 class LogTracer(TracingProcessor):
 
     def get_name(self, trace_or_span: Trace | Span) -> str | None:
         trace_id = trace_or_span.trace_id
-        name = trace_id.split("_")[1]
-        if '0' in name:
-            return name.split("0")[0]
-        else:
-            return None
+        parts = trace_id.split("_")
+        if len(parts) >= 2:
+            return parts[1]
+        return None
 
     def on_trace_start(self, trace) -> None:
         name = self.get_name(trace)

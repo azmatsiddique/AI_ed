@@ -6,12 +6,15 @@ Market data adapter for Groww (replaces Polygon).
 - Falls back to a deterministic pseudo-random price if Groww isn't configured.
 """
 
+import logging
 from functools import lru_cache
 from datetime import datetime, timezone, timedelta
 import os
 import random
 import requests
 from typing import Dict, Optional
+
+logger = logging.getLogger("market")
 
 GROWW_API_KEY = os.getenv("GROWW_API_KEY")  # primary key (if Groww provides one)
 GROWW_BASE_URL = os.getenv("GROWW_BASE_URL", "https://api.groww.in")  # placeholder
@@ -43,37 +46,28 @@ def _groww_headers() -> Dict[str, str]:
 
 def _call_groww_quote_endpoint(symbol: str) -> Optional[float]:
     """
-    Placeholder function to call Groww EOD or realtime quote endpoint.
-    Replace the path with the correct Groww endpoint and query params.
-
-    Example (fake):
-        GET https://api.groww.in/market/v1/quotes?symbol={symbol}
-        headers: x-api-key or Authorization
+    Call Groww EOD or realtime quote endpoint.
     """
     if not (GROWW_API_KEY or GROWW_TOKEN):
         return None
 
     try:
         url = f"{GROWW_BASE_URL}/market/v1/quotes"
-        params = {"symbol": symbol}  # adjust param name if Groww uses different query key
+        params = {"symbol": symbol}
         resp = requests.get(url, headers=_groww_headers(), params=params, timeout=4)
         resp.raise_for_status()
         data = resp.json()
-        # === IMPORTANT: adapt these access paths to Groww's actual JSON ===
-        # below is an example conversion that expects something like:
-        # {"data": {"symbol": "RELIANCE", "last_price": 3540.25}}
         price = None
         if isinstance(data, dict):
             if "last_price" in data:
                 price = float(data["last_price"])
             elif "data" in data and isinstance(data["data"], dict) and "last_price" in data["data"]:
                 price = float(data["data"]["last_price"])
-            # else try some other likely keys
             elif "last" in data:
                 price = float(data["last"])
         return price
-    except Exception:
-        # don't raise in production — log externally if you have a logger
+    except Exception as exc:
+        logger.warning(f"Groww quote endpoint request failed for symbol '{symbol}': {exc}", exc_info=True)
         return None
 
 
@@ -107,8 +101,8 @@ def get_share_price(symbol: str) -> float:
                 price = float(moo_data["last_price"])
                 _price_cache[cache_key] = (now_ts, price)
                 return price
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(f"Moomoo quote lookup failed for '{cache_key}': {exc}", exc_info=True)
 
     # 2. Try INDmoney quote if USE_INDMONEY is enabled
     if USE_INDMONEY:
@@ -119,8 +113,8 @@ def get_share_price(symbol: str) -> float:
                 price = float(ind_data["current_price"])
                 _price_cache[cache_key] = (now_ts, price)
                 return price
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(f"INDmoney chart quote lookup failed for '{cache_key}': {exc}", exc_info=True)
 
     # 3. Try Groww realtime quote if USE_GROWW is enabled
     if USE_GROWW:
@@ -129,8 +123,12 @@ def get_share_price(symbol: str) -> float:
             _price_cache[cache_key] = (now_ts, price)
             return price
 
-    # 3. Fallback to deterministic pseudo-random
+    # 4. Fallback to deterministic pseudo-random
     price = _format_fallback(cache_key)
+    logger.warning(
+        f"[SYNTHETIC FALLBACK USED] All live market APIs failed/unconfigured for '{cache_key}'. "
+        f"Generated fallback price: ₹{price}"
+    )
     _price_cache[cache_key] = (now_ts, price)
     return price
 
@@ -138,30 +136,28 @@ def get_share_price(symbol: str) -> float:
 @lru_cache(maxsize=256)
 def get_historical_close(symbol: str, date_iso: str) -> float:
     """
-    Get historical close for symbol at date (YYYY-MM-DD). This will try a Groww EOD endpoint
-    if available; otherwise returns fallback.
+    Get historical close for symbol at date (YYYY-MM-DD).
     """
-    # In production replace with Groww's /history or /eod endpoint
-    # Example placeholder: GET /market/v1/history?symbol={symbol}&date={date_iso}
     try:
         if not (GROWW_API_KEY or GROWW_TOKEN):
-            raise RuntimeError("No Groww key present")
+            raise RuntimeError("No Groww API credentials configured.")
 
         url = f"{GROWW_BASE_URL}/market/v1/history"
         params = {"symbol": symbol, "date": date_iso}
         resp = requests.get(url, headers=_groww_headers(), params=params, timeout=6)
         resp.raise_for_status()
         payload = resp.json()
-        # adapt to actual Groww payload:
         if isinstance(payload, dict):
             if "close" in payload:
                 return float(payload["close"])
             if "data" in payload and isinstance(payload["data"], dict) and "close" in payload["data"]:
                 return float(payload["data"]["close"])
-    except Exception:
-        # fallback deterministic
-        pass
-    return _format_fallback(symbol)
+    except Exception as exc:
+        logger.warning(f"Historical close request failed for '{symbol}' ({date_iso}): {exc}", exc_info=True)
+
+    fallback_p = _format_fallback(symbol)
+    logger.warning(f"[SYNTHETIC FALLBACK USED] Historical close for '{symbol}' fallback: ₹{fallback_p}")
+    return fallback_p
 
 
 def is_market_open(now_utc: Optional[datetime] = None) -> bool:

@@ -10,16 +10,11 @@ except Exception:
     # Fallback: run regardless if market helper isn't available
     def _is_market_open() -> bool:
         return True
-from dotenv import load_dotenv
-import os
+from ..utils.config import settings
 
-load_dotenv(override=True)
-
-RUN_EVERY_N_MINUTES = int(os.getenv("RUN_EVERY_N_MINUTES", "60"))
-RUN_EVEN_WHEN_MARKET_IS_CLOSED = (
-    os.getenv("RUN_EVEN_WHEN_MARKET_IS_CLOSED", "false").strip().lower() == "true"
-)
-USE_MANY_MODELS = os.getenv("USE_MANY_MODELS", "false").strip().lower() == "true"
+RUN_EVERY_N_MINUTES = settings.run_every_n_minutes
+RUN_EVEN_WHEN_MARKET_IS_CLOSED = settings.run_even_when_market_is_closed
+USE_MANY_MODELS = settings.use_many_models
 
 names = ["Warren", "George", "Ray", "Cathie"]
 lastnames = ["Patience", "Bold", "Systematic", "Crypto"]

@@ -5,11 +5,14 @@ Supports official INDstocks API authentication and token-efficient PinchTab brow
 """
 
 import json
+import logging
 import os
 import urllib.request
 import urllib.parse
 from typing import Any, Dict, Optional
 from src.utils.pinchtab_client import PinchtabClient
+
+logger = logging.getLogger("indmoney_client")
 
 
 class INDmoneyClient:
@@ -49,10 +52,11 @@ class INDmoneyClient:
                         "data": data,
                         "details": res_content or "Retrieved from INDmoney MCP endpoint"
                     }
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(f"INDmoney MCP wallet balance request failed: {exc}", exc_info=True)
 
         # Fallback to simulated/desk wallet state backed by PinchTab engine
+        logger.info("Using desk wallet fallback for INDmoney balance")
         return {
             "status": "success",
             "source": "desk_wallet",
@@ -92,8 +96,8 @@ class INDmoneyClient:
                         "current_price": data.get("current_price"),
                         "change_percent": data.get("change_percent")
                     }
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(f"INDstocks chart API request failed for symbol '{symbol_upper}': {exc}", exc_info=True)
 
         # Browser automation fallback via PinchTab
         if self.pinchtab.is_healthy():

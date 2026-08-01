@@ -6,11 +6,14 @@ account positions, and paper trading, with PinchTab web automation fallback.
 """
 
 import json
+import logging
 import os
 import urllib.request
 import urllib.parse
 from typing import Any, Dict, Optional
 from src.utils.pinchtab_client import PinchtabClient
+
+logger = logging.getLogger("moomoo_client")
 
 
 class MoomooClient:
@@ -54,8 +57,8 @@ class MoomooClient:
                     "volume": int(row.get("volume", 0)),
                     "turnover": float(row.get("turnover", 0.0))
                 }
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(f"Moomoo OpenAPI quote lookup failed for '{clean_symbol}': {exc}", exc_info=True)
 
         # 2. Browser extraction fallback via PinchTab
         if self.pinchtab.is_healthy():
@@ -101,8 +104,8 @@ class MoomooClient:
                     "market_val": float(row.get("market_val", 0.0)),
                     "currency": "USD"
                 }
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(f"Moomoo OpenAPI account query failed: {exc}", exc_info=True)
 
         return {
             "status": "success",
@@ -139,8 +142,8 @@ class MoomooClient:
                     "side": side.upper(),
                     "source": "moomoo_opend_api"
                 }
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(f"Moomoo OpenAPI order placement failed for '{clean_symbol}': {exc}", exc_info=True)
 
         return {
             "status": "success",

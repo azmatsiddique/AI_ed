@@ -10,6 +10,7 @@ An autonomous multi-agent trading system where AI traders with different investm
 - **Real-time Market Data**: Integration with Groww API for Indian market prices (INR ₹)
 - **PinchTab Web Automation**: Token-efficient browser daemon for live financial research across Moneycontrol, Economic Times, Livemint, and public web sources
 - **INDmoney Integration**: Stock chart data retrieval, technical price action, and wallet balance tracking via official INDmoney MCP server (`https://mcp.indmoney.com/mcp`) and browser fallback
+- **Moomoo (Futu OpenAPI) Integration**: US & global stock quotes, account positions, and paper trading via OpenD gateway (`127.0.0.1:11111`) with PinchTab fallback
 - **MCP Architecture**: Uses Model Context Protocol for modular tool integration
 - **Live Dashboard**: Gradio-based UI showing portfolio values, holdings, PinchTab status, INDmoney wallet indicators, and live transaction logs
 - **Push Notifications**: Get alerts via Pushover for important trading events
@@ -103,6 +104,11 @@ GROWW_BASE_URL=https://api.groww.in
 INDMONEY_MCP_URL=https://mcp.indmoney.com/mcp
 INDMONEY_MCP_TOKEN=your_indmoney_mcp_token_here
 
+# Moomoo / Futu OpenAPI Integration
+MOOMOO_HOST=127.0.0.1
+MOOMOO_PORT=11111
+MOOMOO_ENV=SIMULATE
+
 # Trading Configuration
 RUN_EVERY_N_MINUTES=60
 RUN_EVEN_WHEN_MARKET_IS_CLOSED=false
@@ -177,6 +183,7 @@ uv run python tests/test_indmoney_integration.py
 │   └── utils/                 # Utility clients
 │       ├── pinchtab_client.py # PinchTab HTTP API client
 │       ├── indmoney_client.py # INDmoney API/MCP client
+│       ├── moomoo_client.py   # Moomoo / Futu OpenAPI client
 │       └── tracers.py        # Logging and tracing
 ├── scripts/                   # Management scripts
 │   ├── reset.py              # Reset trader balances

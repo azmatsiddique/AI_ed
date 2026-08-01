@@ -16,26 +16,45 @@ root_dir = str(pathlib.Path(__file__).parent.parent.parent.resolve())
 if root_dir not in sys.path:
     sys.path.append(root_dir)
 
+from decimal import Decimal, ROUND_HALF_UP
+from typing import Optional, Union, Dict, List, Tuple
+
+from .database import write_account, read_account, write_log
+from .market import get_share_price
+from ..utils.formatting import fmt_inr
+
+# Add project root to sys.path to allow importing groww_client when run via scripts/reset.py
+root_dir = str(pathlib.Path(__file__).parent.parent.parent.resolve())
+if root_dir not in sys.path:
+    sys.path.append(root_dir)
+
 try:
     from groww_client import client as groww_client
 except ModuleNotFoundError:
     groww_client = None
 
-INITIAL_BALANCE = 1_00_000.0  # default INR starting balance (₹100,000)
-SPREAD = 0.002  # 0.2% spread
+INITIAL_BALANCE = Decimal("100000.00")  # default INR starting balance (₹100,000)
+SPREAD = Decimal("0.002")  # 0.2% spread
+
+
+def quantize_money(val: Union[Decimal, float, str, int]) -> Decimal:
+    """Quantize financial values to 2 decimal places using standard ROUND_HALF_UP rounding."""
+    if not isinstance(val, Decimal):
+        val = Decimal(str(val))
+    return val.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 class Transaction(BaseModel):
     """Represents a single trading transaction"""
     symbol: str
     quantity: int
-    price: float
+    price: Decimal
     timestamp: str
     rationale: str
 
-    def total(self) -> float:
+    def total(self) -> Decimal:
         """Calculate total transaction value"""
-        return float(self.quantity) * float(self.price)
+        return quantize_money(Decimal(self.quantity) * self.price)
     
     def __repr__(self):
         return f"{abs(self.quantity)} shares of {self.symbol} at {fmt_inr(self.price)} each."
@@ -44,11 +63,11 @@ class Transaction(BaseModel):
 class Account(BaseModel):
     """Represents a trader's account with holdings and transaction history"""
     name: str
-    balance: float
+    balance: Decimal
     strategy: str
-    holdings: dict[str, int]
-    transactions: list[Transaction]
-    portfolio_value_time_series: list[tuple[str, float]]
+    holdings: Dict[str, int]
+    transactions: List[Transaction]
+    portfolio_value_time_series: List[Tuple[str, float]]
 
     @classmethod
     def get(cls, name: str) -> "Account":
@@ -67,14 +86,14 @@ class Account(BaseModel):
         
         # Override balance with real Groww wallet balance if available
         if groww_client and groww_client.available():
-            real_balance = groww_client.get_wallet_balance()
+            real_balance = Decimal(str(groww_client.get_wallet_balance()))
             fields["balance"] = real_balance
             
         return cls(**fields)
     
     def save(self) -> None:
         """Persist account to database"""
-        write_account(self.name.lower(), self.model_dump())
+        write_account(self.name.lower(), self.model_dump(mode="json"))
 
     def reset(self, strategy: str) -> None:
         """Reset account to initial state with new strategy"""
@@ -85,22 +104,24 @@ class Account(BaseModel):
         self.portfolio_value_time_series = []
         self.save()
 
-    def deposit(self, amount: float) -> None:
+    def deposit(self, amount: Union[Decimal, float, str, int]) -> None:
         """Deposit funds into the account"""
-        if amount <= 0:
+        dec_amount = quantize_money(amount)
+        if dec_amount <= Decimal("0"):
             raise ValueError("Deposit amount must be positive.")
-        self.balance += amount
-        msg = f"Deposited {fmt_inr(amount)}. New balance: {fmt_inr(self.balance)}"
+        self.balance = quantize_money(self.balance + dec_amount)
+        msg = f"Deposited {fmt_inr(dec_amount)}. New balance: {fmt_inr(self.balance)}"
         print(msg)
         write_log(self.name, "account", msg)
         self.save()
 
-    def withdraw(self, amount: float) -> None:
+    def withdraw(self, amount: Union[Decimal, float, str, int]) -> None:
         """Withdraw funds from the account, ensuring it doesn't go negative"""
-        if amount > self.balance:
+        dec_amount = quantize_money(amount)
+        if dec_amount > self.balance:
             raise ValueError("Insufficient funds for withdrawal.")
-        self.balance -= amount
-        msg = f"Withdrew {fmt_inr(amount)}. New balance: {fmt_inr(self.balance)}"
+        self.balance = quantize_money(self.balance - dec_amount)
+        msg = f"Withdrew {fmt_inr(dec_amount)}. New balance: {fmt_inr(self.balance)}"
         print(msg)
         write_log(self.name, "account", msg)
         self.save()
@@ -109,14 +130,14 @@ class Account(BaseModel):
         """Buy shares of a stock if sufficient funds are available"""
         if quantity <= 0:
             raise ValueError("Quantity must be positive.")
-        price = get_share_price(symbol)
-        if price == 0:
+        raw_price = get_share_price(symbol)
+        if raw_price == 0:
             raise ValueError(f"Unrecognized symbol {symbol}")
-        buy_price = price * (1 + SPREAD)
-        total_cost = buy_price * quantity
-        total_cost = float(round(total_cost, 2))
+        price = quantize_money(raw_price)
+        buy_price = quantize_money(price * (Decimal("1") + SPREAD))
+        total_cost = quantize_money(buy_price * Decimal(quantity))
         
-        if total_cost > self.balance + 1e-6:
+        if total_cost > self.balance:
             raise ValueError("Insufficient funds to buy shares.")
         
         # Update holdings
@@ -132,7 +153,7 @@ class Account(BaseModel):
         self.transactions.append(transaction)
         
         # Update balance
-        self.balance = float(round(self.balance - total_cost, 2))
+        self.balance = quantize_money(self.balance - total_cost)
         self.save()
         write_log(self.name, "account", f"Bought {quantity} of {symbol} @ {fmt_inr(buy_price)} for {fmt_inr(total_cost)}")
         return "Completed. Latest details:\n" + self.report()
@@ -145,9 +166,10 @@ class Account(BaseModel):
         if holding_qty < quantity:
             raise ValueError(f"Cannot sell {quantity} shares of {symbol}. Not enough shares held.")
         
-        price = get_share_price(symbol)
-        sell_price = price * (1 - SPREAD)
-        total_proceeds = float(round(sell_price * quantity, 2))
+        raw_price = get_share_price(symbol)
+        price = quantize_money(raw_price)
+        sell_price = quantize_money(price * (Decimal("1") - SPREAD))
+        total_proceeds = quantize_money(sell_price * Decimal(quantity))
         
         # Update holdings
         self.holdings[symbol] = holding_qty - quantity
@@ -164,22 +186,25 @@ class Account(BaseModel):
         self.transactions.append(transaction)
 
         # Update balance
-        self.balance = float(round(self.balance + total_proceeds, 2))
+        self.balance = quantize_money(self.balance + total_proceeds)
         self.save()
         write_log(self.name, "account", f"Sold {quantity} of {symbol} @ {fmt_inr(sell_price)} for {fmt_inr(total_proceeds)}")
         return "Completed. Latest details:\n" + self.report()
 
-    def calculate_portfolio_value(self) -> float:
+    def calculate_portfolio_value(self) -> Decimal:
         """Calculate the total value of the user's portfolio"""
-        total_value = float(self.balance)
+        total_value = self.balance
         for symbol, quantity in self.holdings.items():
-            total_value += get_share_price(symbol) * quantity
-        return float(round(total_value, 2))
+            stock_price = quantize_money(get_share_price(symbol))
+            total_value += stock_price * Decimal(quantity)
+        return quantize_money(total_value)
 
-    def calculate_profit_loss(self, portfolio_value: float) -> float:
+    def calculate_profit_loss(self, portfolio_value: Decimal) -> Decimal:
         """Calculate profit or loss from the initial spend"""
-        initial_spend = sum((t.price * t.quantity) for t in self.transactions if t.quantity > 0)
-        return float(round(portfolio_value - (initial_spend - sum((-t.price * t.quantity) for t in self.transactions if t.quantity < 0)), 2))
+        initial_spend = sum((t.price * Decimal(t.quantity)) for t in self.transactions if t.quantity > 0)
+        sales_proceeds = sum((-t.price * Decimal(t.quantity)) for t in self.transactions if t.quantity < 0)
+        net_spent = initial_spend - sales_proceeds
+        return quantize_money(portfolio_value - net_spent)
 
     def get_holdings(self) -> dict[str, int]:
         """Report the current holdings of the user"""
@@ -188,24 +213,24 @@ class Account(BaseModel):
     def get_profit_loss(self) -> float:
         """Report the user's profit or loss at any point in time"""
         pv = self.calculate_portfolio_value()
-        return self.calculate_profit_loss(pv)
+        return float(self.calculate_profit_loss(pv))
 
     def list_transactions(self) -> list[dict]:
         """List all transactions made by the user"""
-        return [transaction.model_dump() for transaction in self.transactions]
+        return [transaction.model_dump(mode="json") for transaction in self.transactions]
     
     def report(self) -> str:
         """Return a json string representing the account"""
         import json
         portfolio_value = self.calculate_portfolio_value()
-        self.portfolio_value_time_series.append((datetime.now().strftime("%Y-%m-%d %H:%M:%S"), portfolio_value))
+        pv_float = float(portfolio_value)
+        self.portfolio_value_time_series.append((datetime.now().strftime("%Y-%m-%d %H:%M:%S"), pv_float))
         self.save()
         pnl = self.calculate_profit_loss(portfolio_value)
-        data = self.model_dump()
-        data["total_portfolio_value"] = portfolio_value
-        data["total_profit_loss"] = pnl
+        data = self.model_dump(mode="json")
+        data["total_portfolio_value"] = pv_float
+        data["total_profit_loss"] = float(pnl)
         write_log(self.name, "account", f"Retrieved account details: {fmt_inr(portfolio_value)} / P&L {fmt_inr(pnl)}")
-        # Format amounts as numeric values to keep JSON numeric; UI will format to ₹
         return json.dumps(data)
     
     def get_strategy(self) -> str:
@@ -219,3 +244,4 @@ class Account(BaseModel):
         self.save()
         write_log(self.name, "account", "Changed strategy")
         return "Changed strategy"
+

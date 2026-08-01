@@ -13,6 +13,7 @@ market_mcp = {"command": "uv", "args": ["run", "-m", "src.mcp_servers.market_ser
 def get_trader_mcp_server_params():
     use_groww = os.getenv("USE_GROWW", "true").lower() in ("true", "1", "yes")
     use_indmoney = os.getenv("USE_INDMONEY", "true").lower() in ("true", "1", "yes")
+    use_moomoo = os.getenv("USE_MOOMOO", "true").lower() in ("true", "1", "yes")
 
     params = [
         {"command": "uv", "args": ["run", "-m", "src.mcp_servers.accounts_server"]},
@@ -22,6 +23,9 @@ def get_trader_mcp_server_params():
 
     if use_indmoney:
         params.append({"command": "uv", "args": ["run", "-m", "src.mcp_servers.indmoney_server"]})
+
+    if use_moomoo:
+        params.append({"command": "uv", "args": ["run", "-m", "src.mcp_servers.moomoo_server"]})
 
     if use_groww:
         params.append(market_mcp)

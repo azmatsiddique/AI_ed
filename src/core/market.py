@@ -79,12 +79,13 @@ def _call_groww_quote_endpoint(symbol: str) -> Optional[float]:
 
 USE_GROWW = os.getenv("USE_GROWW", "true").lower() in ("true", "1", "yes")
 USE_INDMONEY = os.getenv("USE_INDMONEY", "true").lower() in ("true", "1", "yes")
+USE_MOOMOO = os.getenv("USE_MOOMOO", "true").lower() in ("true", "1", "yes")
 
 
 def get_share_price(symbol: str) -> float:
     """
     Returns current share price for symbol in INR.
-    Respects USE_INDMONEY and USE_GROWW feature flags.
+    Respects USE_INDMONEY, USE_MOOMOO, and USE_GROWW feature flags.
     """
     # quick cache hit to avoid spamming provider
     cache_key = symbol.upper()
@@ -97,7 +98,19 @@ def get_share_price(symbol: str) -> float:
         if now_ts - ts <= _CACHE_TTL_SECONDS:
             return price
 
-    # 1. Try INDmoney quote if USE_INDMONEY is enabled
+    # 1. Try Moomoo quote if USE_MOOMOO is enabled and symbol is US/Global
+    if USE_MOOMOO and (cache_key.startswith("US.") or cache_key.startswith("HK.")):
+        try:
+            from src.utils.moomoo_client import MoomooClient
+            moo_data = MoomooClient().get_stock_quote(cache_key)
+            if moo_data.get("last_price") is not None and moo_data.get("last_price") > 0:
+                price = float(moo_data["last_price"])
+                _price_cache[cache_key] = (now_ts, price)
+                return price
+        except Exception:
+            pass
+
+    # 2. Try INDmoney quote if USE_INDMONEY is enabled
     if USE_INDMONEY:
         try:
             from src.utils.indmoney_client import INDmoneyClient
@@ -109,7 +122,7 @@ def get_share_price(symbol: str) -> float:
         except Exception:
             pass
 
-    # 2. Try Groww realtime quote if USE_GROWW is enabled
+    # 3. Try Groww realtime quote if USE_GROWW is enabled
     if USE_GROWW:
         price = _call_groww_quote_endpoint(cache_key)
         if price is not None:

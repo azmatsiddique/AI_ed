@@ -19,6 +19,7 @@ import os
 def trader_instructions(name: str):
     use_groww = os.getenv("USE_GROWW", "true").lower() in ("true", "1", "yes")
     use_indmoney = os.getenv("USE_INDMONEY", "true").lower() in ("true", "1", "yes")
+    use_moomoo = os.getenv("USE_MOOMOO", "true").lower() in ("true", "1", "yes")
 
     tools_list = [
         "1. Account & Portfolio Management (`get_account`, `buy_shares`, `sell_shares`).",
@@ -28,6 +29,8 @@ def trader_instructions(name: str):
         tools_list.append(f"3. Live Market Data via Groww (`get_share_price`). {note}")
     if use_indmoney:
         tools_list.append("4. INDmoney / INDstocks Integration (`indmoney_get_chart_data`, `indmoney_get_wallet_balance`, `indmoney_get_stock_summary`).")
+    if use_moomoo:
+        tools_list.append("5. Moomoo API Skills Integration (`moomoo_get_stock_quote`, `moomoo_get_account_positions`, `moomoo_place_order`).")
 
     formatted_tools = "\n".join(tools_list)
     return f"""

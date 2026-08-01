@@ -297,6 +297,7 @@ def get_global_header_html(traders) -> str:
 
     use_groww = os.getenv("USE_GROWW", "true").lower() in ("true", "1", "yes")
     use_indmoney = os.getenv("USE_INDMONEY", "true").lower() in ("true", "1", "yes")
+    use_moomoo = os.getenv("USE_MOOMOO", "true").lower() in ("true", "1", "yes")
     
     for t in traders:
         t.reload()
@@ -328,6 +329,16 @@ def get_global_header_html(traders) -> str:
             </div>
     """ if use_indmoney else ""
 
+    moomoo_badge = """
+            <div class="header-stat-box">
+                <span class="stat-label">MOOMOO API SKILLS</span>
+                <div class="status-indicator-row">
+                    <span class="status-dot pulse" style="background-color: #8b5cf6; box-shadow: 0 0 8px #8b5cf6;"></span>
+                    <span class="status-text" style="color: #8b5cf6;">ACTIVE</span>
+                </div>
+            </div>
+    """ if use_moomoo else ""
+
     html = f"""
     <div class="global-header">
         <div class="header-logo-section">
@@ -358,6 +369,7 @@ def get_global_header_html(traders) -> str:
             </div>
             {groww_badge}
             {indmoney_badge}
+            {moomoo_badge}
             <div class="header-stat-box">
                 <span class="stat-label">DESK STATUS</span>
                 <div class="status-indicator-row">

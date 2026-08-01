@@ -189,8 +189,8 @@ class TraderUI:
 
     def get_portfolio_value(self) -> str:
         self.reload()
-        portfolio_value = self.account.calculate_portfolio_value() or 0.0
-        pnl = self.account.calculate_profit_loss(portfolio_value) or 0.0
+        portfolio_value = float(self.account.calculate_portfolio_value() or 0.0)
+        pnl = float(self.account.calculate_profit_loss(portfolio_value) or 0.0)
         badge_class = "pv-badge-up" if pnl >= 0 else "pv-badge-down"
         pnl_badge_class = "pnl-up" if pnl >= 0 else "pnl-down"
         sign = "▲" if pnl >= 0 else "▼"
@@ -235,8 +235,8 @@ class TraderUI:
 
     def get_overview_card(self) -> str:
         self.reload()
-        portfolio_value = self.account.calculate_portfolio_value() or 0.0
-        pnl = self.account.calculate_profit_loss(portfolio_value) or 0.0
+        portfolio_value = float(self.account.calculate_portfolio_value() or 0.0)
+        pnl = float(self.account.calculate_profit_loss(portfolio_value) or 0.0)
         
         emojis = {
             "warren": "👴",
@@ -301,8 +301,8 @@ def get_global_header_html(traders) -> str:
     
     for t in traders:
         t.reload()
-        pv = t.account.calculate_portfolio_value() or 0.0
-        pnl = t.account.calculate_profit_loss(pv) or 0.0
+        pv = float(t.account.calculate_portfolio_value() or 0.0)
+        pnl = float(t.account.calculate_profit_loss(pv) or 0.0)
         total_val += pv
         total_pnl += pnl
         

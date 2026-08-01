@@ -63,7 +63,6 @@ An autonomous multi-agent trading system where AI traders with different investm
   - OpenRouter API Key (for LLM models)
   - Groww API Token (for Indian market data)
   - INDmoney MCP Token (optional, for `https://mcp.indmoney.com/mcp`)
-  - Brave API Key (optional, for web search)
   - Pushover credentials (optional, for notifications)
 
 ## 🚀 Quick Start & Installation

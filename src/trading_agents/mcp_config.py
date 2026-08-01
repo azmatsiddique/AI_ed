@@ -35,18 +35,11 @@ def get_trader_mcp_server_params():
 # For backward compatibility
 trader_mcp_server_params = get_trader_mcp_server_params()
 
-# The researcher still uses fetch and brave search if you have keys;
-# keep the existing research params but ensure BRAVE_API_KEY etc are set as needed.
-brave_env = {"BRAVE_API_KEY": os.getenv("BRAVE_API_KEY")}
+# Researcher MCP server params using PinchTab browser automation (no API key required)
 def researcher_mcp_server_params(name: str):
-    # Keep same as previous — replace as required for your infra
     return [
+        {"command": "uv", "args": ["run", "-m", "src.mcp_servers.researcher_server"]},
         {"command": "uvx", "args": ["mcp-server-fetch"]},
-        {
-            "command": "npx",
-            "args": ["-y", "@modelcontextprotocol/server-brave-search"],
-            "env": brave_env,
-        },
         {
             "command": "npx",
             "args": ["-y", "mcp-memory-libsql"],

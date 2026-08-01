@@ -37,9 +37,6 @@ class Settings:
     pushover_user_key: str = os.getenv("PUSHOVER_USER_KEY", "")
     pushover_api_token: str = os.getenv("PUSHOVER_API_TOKEN", "")
 
-    # Brave Web Search
-    brave_api_key: str = os.getenv("BRAVE_API_KEY", "")
-
     def is_groww_configured(self) -> bool:
         return bool(self.groww_api_token)
 

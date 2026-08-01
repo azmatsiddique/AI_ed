@@ -1,61 +1,51 @@
 """
 researcher_server.py
-MCP server providing research and data intelligence tools.
-
-This connects to the BRAVE Search API (via BRAVE_API_KEY) to help
-agents or the UI perform enhanced data lookups, sentiment gathering,
-and quick financial insights.
-
-Each tool returns structured responses that can be used by AI agents
-(e.g., traders, researchers) for decision support.
+MCP server providing research and data intelligence tools via PinchTab browser automation.
+No third-party search API keys (like Brave) required!
 """
 
-import os
-import requests
-from mcp.server.fastmcp import FastMCP, Tool
-
-BRAVE_API_KEY = os.environ.get("BRAVE_API_KEY", "")
-BRAVE_URL = "https://api.search.brave.com/res/v1/web/search"
+from mcp.server.fastmcp import FastMCP
+from src.utils.pinchtab_client import PinchtabClient
 
 # Initialize MCP server
 mcp = FastMCP("researcher")
+pinchtab = PinchtabClient()
+
 
 @mcp.tool()
 def web_search(query: str, count: int = 5) -> dict:
     """
-    Perform a web search using the BRAVE API.
-    Returns top search results with title, link, and snippet.
+    Perform live web research and data extraction via PinchTab browser automation.
+    No BRAVE_API_KEY required.
     """
-    if not BRAVE_API_KEY:
-        return {"error": "Missing BRAVE_API_KEY. Please set it in environment variables."}
-
-    headers = {
-        "Accept": "application/json",
-        "X-Subscription-Token": BRAVE_API_KEY,
+    formatted_query = query.replace(" ", "+")
+    search_url = f"https://www.google.com/search?q={formatted_query}"
+    res = pinchtab.browse_and_extract(search_url)
+    return {
+        "query": query,
+        "status": res.get("status", "success"),
+        "source": "pinchtab_browser_daemon",
+        "title": res.get("title", f"Web Search - {query}"),
+        "content": res.get("text", "")[:1200]
     }
-    params = {"q": query, "count": count}
-    try:
-        resp = requests.get(BRAVE_URL, headers=headers, params=params, timeout=10)
-        data = resp.json()
-        results = []
-        for item in data.get("web", {}).get("results", []):
-            results.append({
-                "title": item.get("title"),
-                "url": item.get("url"),
-                "description": item.get("description"),
-            })
-        return {"query": query, "results": results}
-    except Exception as e:
-        return {"error": str(e)}
+
 
 @mcp.tool()
 def quick_insight(ticker: str) -> dict:
     """
-    Quickly fetch recent web results about a stock or company to gauge sentiment.
-    Example: quick_insight("RELIANCE")
+    Quickly fetch recent market news and sentiment for a stock via PinchTab.
     """
-    q = f"{ticker} stock performance site:moneycontrol.com OR site:economictimes.indiatimes.com"
-    return web_search(q, count=3)
+    ticker_clean = ticker.upper().strip()
+    news_url = f"https://www.moneycontrol.com/india/stockpricequote/{ticker_clean.lower()}"
+    res = pinchtab.browse_and_extract(news_url)
+    return {
+        "ticker": ticker_clean,
+        "status": res.get("status", "success"),
+        "source": "pinchtab_moneycontrol",
+        "title": res.get("title", f"Market Insight - {ticker_clean}"),
+        "extracted_news": res.get("text", "")[:1200]
+    }
+
 
 if __name__ == "__main__":
     mcp.run()

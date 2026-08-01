@@ -466,7 +466,7 @@ def make_data_refresh_fn(traders):
 def create_ui():
     traders = [TraderUI(n, ln, mn) for n, ln, mn in zip(names, lastnames, short_model_names)]
     
-    with gr.Blocks(title="AI Trading Floor Terminal", css=css, js=js) as ui:
+    with gr.Blocks(title="AI Trading Floor Terminal") as ui:
         # 1. Global Header Status
         global_header = gr.HTML(value=lambda: get_global_header_html(traders))
         
@@ -512,7 +512,7 @@ def create_ui():
                                 value=t.get_holdings_df(),
                                 label="Active Holdings",
                                 row_count=(5, "dynamic"),
-                                col_count=4,
+                                column_count=4,
                                 interactive=False
                             )
                             
@@ -570,4 +570,4 @@ def create_ui():
 
 if __name__ == "__main__":
     ui = create_ui()
-    ui.launch(inbrowser=True)
+    ui.launch(inbrowser=True, css=css, js=js)

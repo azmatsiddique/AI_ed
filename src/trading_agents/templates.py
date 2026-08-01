@@ -14,14 +14,26 @@ The current datetime is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 def research_tool():
     return "This tool researches online for news and opportunities or analyzes a company/symbol on request."
 
+import os
+
 def trader_instructions(name: str):
+    use_groww = os.getenv("USE_GROWW", "true").lower() in ("true", "1", "yes")
+    use_indmoney = os.getenv("USE_INDMONEY", "true").lower() in ("true", "1", "yes")
+
+    tools_list = [
+        "1. Account & Portfolio Management (`get_account`, `buy_shares`, `sell_shares`).",
+        "2. High-Performance Web Research via PinchTab (`pinchtab_browse_url`, `pinchtab_search_financial_news`, `pinchtab_get_status`)."
+    ]
+    if use_groww:
+        tools_list.append(f"3. Live Market Data via Groww (`get_share_price`). {note}")
+    if use_indmoney:
+        tools_list.append("4. INDmoney / INDstocks Integration (`indmoney_get_chart_data`, `indmoney_get_wallet_balance`, `indmoney_get_stock_summary`).")
+
+    formatted_tools = "\n".join(tools_list)
     return f"""
 You are {name}, an autonomous AI trader operating in the Indian stock market. Your account name is {name}.
 You have access to:
-1. Live Market Data & Share Prices via Groww (`get_share_price`). {note}
-2. Account & Portfolio Management (`get_account`, `buy_shares`, `sell_shares`).
-3. High-Performance Token-Efficient Web Browser Research via PinchTab (`pinchtab_browse_url`, `pinchtab_search_financial_news`, `pinchtab_get_status`). You can use PinchTab to browse Moneycontrol, Economic Times, Livemint, or search breaking news on companies before executing trades.
-4. INDmoney / INDstocks Integration (`indmoney_get_chart_data`, `indmoney_get_wallet_balance`, `indmoney_get_stock_summary`). Use INDmoney tools to analyze stock chart price action, trends, and wallet margin.
+{formatted_tools}
 
 Use these tools to analyze market opportunities, verify company news, inspect charts, and make informed trading decisions.
 """

@@ -77,10 +77,14 @@ def _call_groww_quote_endpoint(symbol: str) -> Optional[float]:
         return None
 
 
+USE_GROWW = os.getenv("USE_GROWW", "true").lower() in ("true", "1", "yes")
+USE_INDMONEY = os.getenv("USE_INDMONEY", "true").lower() in ("true", "1", "yes")
+
+
 def get_share_price(symbol: str) -> float:
     """
     Returns current share price for symbol in INR.
-    Attempts Groww realtime endpoint, falls back to cached EOD, then deterministic random.
+    Respects USE_INDMONEY and USE_GROWW feature flags.
     """
     # quick cache hit to avoid spamming provider
     cache_key = symbol.upper()
@@ -93,13 +97,26 @@ def get_share_price(symbol: str) -> float:
         if now_ts - ts <= _CACHE_TTL_SECONDS:
             return price
 
-    # Try Groww realtime quote
-    price = _call_groww_quote_endpoint(cache_key)
-    if price is not None:
-        _price_cache[cache_key] = (now_ts, price)
-        return price
+    # 1. Try INDmoney quote if USE_INDMONEY is enabled
+    if USE_INDMONEY:
+        try:
+            from src.utils.indmoney_client import INDmoneyClient
+            ind_data = INDmoneyClient().get_stock_chart_data(cache_key)
+            if ind_data.get("current_price") is not None:
+                price = float(ind_data["current_price"])
+                _price_cache[cache_key] = (now_ts, price)
+                return price
+        except Exception:
+            pass
 
-    # No Groww key or endpoint mismatch — fallback to deterministic pseudo-random
+    # 2. Try Groww realtime quote if USE_GROWW is enabled
+    if USE_GROWW:
+        price = _call_groww_quote_endpoint(cache_key)
+        if price is not None:
+            _price_cache[cache_key] = (now_ts, price)
+            return price
+
+    # 3. Fallback to deterministic pseudo-random
     price = _format_fallback(cache_key)
     _price_cache[cache_key] = (now_ts, price)
     return price

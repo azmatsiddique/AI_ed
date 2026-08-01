@@ -289,9 +289,14 @@ class TraderUI:
         return card_html
 
 
+import os
+
 def get_global_header_html(traders) -> str:
     total_val = 0.0
     total_pnl = 0.0
+
+    use_groww = os.getenv("USE_GROWW", "true").lower() in ("true", "1", "yes")
+    use_indmoney = os.getenv("USE_INDMONEY", "true").lower() in ("true", "1", "yes")
     
     for t in traders:
         t.reload()
@@ -303,6 +308,26 @@ def get_global_header_html(traders) -> str:
     pnl_class = "global-pnl-up" if total_pnl >= 0 else "global-pnl-down"
     sign = "▲" if total_pnl >= 0 else "▼"
     
+    groww_badge = """
+            <div class="header-stat-box">
+                <span class="stat-label">GROWW API MARKET</span>
+                <div class="status-indicator-row">
+                    <span class="status-dot pulse" style="background-color: #3b82f6; box-shadow: 0 0 8px #3b82f6;"></span>
+                    <span class="status-text" style="color: #3b82f6;">ACTIVE</span>
+                </div>
+            </div>
+    """ if use_groww else ""
+
+    indmoney_badge = """
+            <div class="header-stat-box">
+                <span class="stat-label">INDMONEY WALLET & CHARTS</span>
+                <div class="status-indicator-row">
+                    <span class="status-dot pulse" style="background-color: #fbbf24; box-shadow: 0 0 8px #fbbf24;"></span>
+                    <span class="status-text" style="color: #fbbf24;">CONNECTED</span>
+                </div>
+            </div>
+    """ if use_indmoney else ""
+
     html = f"""
     <div class="global-header">
         <div class="header-logo-section">
@@ -331,15 +356,8 @@ def get_global_header_html(traders) -> str:
                     <span class="status-text" style="color: #00e5cc;">ONLINE (PORT 9867)</span>
                 </div>
             </div>
-            
-            <div class="header-stat-box">
-                <span class="stat-label">INDMONEY WALLET & CHARTS</span>
-                <div class="status-indicator-row">
-                    <span class="status-dot pulse" style="background-color: #fbbf24; box-shadow: 0 0 8px #fbbf24;"></span>
-                    <span class="status-text" style="color: #fbbf24;">CONNECTED</span>
-                </div>
-            </div>
-            
+            {groww_badge}
+            {indmoney_badge}
             <div class="header-stat-box">
                 <span class="stat-label">DESK STATUS</span>
                 <div class="status-indicator-row">

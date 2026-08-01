@@ -2,7 +2,7 @@
 """Standalone script for testing individual traders"""
 
 import asyncio
-from src.agents.trader import Trader
+from src.trading_agents.trader import Trader
 
 
 async def main():

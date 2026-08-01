@@ -1,6 +1,8 @@
 # src/core/models.py
 """Core data models for the trading system"""
 
+import sys
+import pathlib
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
@@ -8,6 +10,16 @@ from typing import Optional
 from .database import write_account, read_account, write_log
 from .market import get_share_price
 from ..utils.formatting import fmt_inr
+
+# Add project root to sys.path to allow importing groww_client when run via scripts/reset.py
+root_dir = str(pathlib.Path(__file__).parent.parent.parent.resolve())
+if root_dir not in sys.path:
+    sys.path.append(root_dir)
+
+try:
+    from groww_client import client as groww_client
+except ModuleNotFoundError:
+    groww_client = None
 
 INITIAL_BALANCE = 1_00_000.0  # default INR starting balance (₹100,000)
 SPREAD = 0.002  # 0.2% spread
@@ -52,6 +64,12 @@ class Account(BaseModel):
                 "portfolio_value_time_series": []
             }
             write_account(name, fields)
+        
+        # Override balance with real Groww wallet balance if available
+        if groww_client and groww_client.available():
+            real_balance = groww_client.get_wallet_balance()
+            fields["balance"] = real_balance
+            
         return cls(**fields)
     
     def save(self) -> None:

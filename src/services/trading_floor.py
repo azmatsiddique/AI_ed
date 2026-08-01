@@ -1,5 +1,5 @@
 # src/services/trading_floor.py
-from ..agents.trader import Trader
+from ..trading_agents.trader import Trader
 from typing import List
 import asyncio
 from ..utils.tracers import LogTracer

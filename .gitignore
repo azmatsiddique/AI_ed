@@ -59,3 +59,7 @@ htmlcov/
 # Node modules (for MCP servers)
 node_modules/
 package-lock.json
+
+# PinchTab cloned repository
+pinchtab/
+

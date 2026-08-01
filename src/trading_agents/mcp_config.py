@@ -10,10 +10,12 @@ GROWW_API_KEY = os.getenv("GROWW_API_KEY")
 # Otherwise we use the local Python market_server (uv run src/mcp_servers/market_server.py)
 market_mcp = {"command": "uv", "args": ["run", "-m", "src.mcp_servers.market_server"]}
 
-# The full set of MCP servers for the trader: Accounts, Push Notification and the Market
+# The full set of MCP servers for the trader: Accounts, Push Notification, Market, PinchTab, and INDmoney
 trader_mcp_server_params = [
     {"command": "uv", "args": ["run", "-m", "src.mcp_servers.accounts_server"]},
     {"command": "uv", "args": ["run", "-m", "src.mcp_servers.push_server"]},
+    {"command": "uv", "args": ["run", "-m", "src.mcp_servers.pinchtab_server"]},
+    {"command": "uv", "args": ["run", "-m", "src.mcp_servers.indmoney_server"]},
     market_mcp,
 ]
 

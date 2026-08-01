@@ -12,7 +12,7 @@ import os
 import time
 from typing import Any, Dict, List, Optional
 
-GROWW_TOKEN = os.environ.get("GROWW_API_TOKEN")
+GROWW_TOKEN = os.environ.get("GROWW_API_TOKEN") or os.environ.get("GROWW_TOKEN")
 
 try:
     from growwapi import GrowwAPI, GrowwFeed
@@ -26,6 +26,8 @@ class GrowwClientWrapper:
     def __init__(self, access_token: Optional[str] = None):
         self.access_token = access_token or GROWW_TOKEN
         self.groww = None
+        self._cached_balance = None
+        self._last_balance_fetch_time = 0.0
         if SDK_AVAILABLE and self.access_token:
             try:
                 self.groww = GrowwAPI(self.access_token)
@@ -35,6 +37,41 @@ class GrowwClientWrapper:
 
     def available(self) -> bool:
         return SDK_AVAILABLE and self.groww is not None
+
+    def get_wallet_balance(self) -> float:
+        """Fetch available clear cash from Groww margin details with caching."""
+        current_time = time.time()
+        # Cache for 30 seconds to avoid hitting rate limits and slowing down queries
+        if self._cached_balance is not None and (current_time - self._last_balance_fetch_time < 30.0):
+            return self._cached_balance
+
+        if self.available():
+            try:
+                details = self.groww.get_available_margin_details()
+                if isinstance(details, dict):
+                    # Keys can vary; common ones are 'clear_cash', 'available_balance', 'cash', 'margin'
+                    cash = (
+                        details.get("clear_cash") or
+                        details.get("available_balance") or
+                        details.get("cash") or
+                        details.get("margin") or
+                        0.0
+                    )
+                    self._cached_balance = float(cash)
+                    self._last_balance_fetch_time = current_time
+                    return self._cached_balance
+            except Exception as e:
+                print(f"Error fetching Groww wallet balance: {e}")
+                # Cache the error/fallback for 10 seconds so sequential reloads for other traders
+                # do not trigger immediate failing network calls
+                self._last_balance_fetch_time = current_time - 20.0
+                if self._cached_balance is not None:
+                    return self._cached_balance
+        # fallback
+        self._cached_balance = 100000.0
+        self._last_balance_fetch_time = current_time
+        return self._cached_balance
+
 
     def get_quote(self, exchange: str, segment: str, trading_symbol: str) -> Dict[str, Any]:
         """Get a live quote for a single instrument. Returns Groww SDK dict or

@@ -19,6 +19,17 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
+dependencies = [
+    "gradio>=5.0.0",
+    "plotly>=5.0.0",
+    "pandas>=2.0.0",
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "requests>=2.0.0",
+    "openai-agents>=0.1.0rc3",
+    "growwapi>=1.5.0",
+    "cryptography==48.0.0",
+]
 
 [project.scripts]
 trading-floor = "src.services.trading_floor:main"

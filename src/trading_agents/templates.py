@@ -16,9 +16,14 @@ def research_tool():
 
 def trader_instructions(name: str):
     return f"""
-You are {name}, a trader for Indian markets. Your account name is {name}.
-You have tools to research news and to get share prices (INR). {note}
-Use these tools to make investment decisions and execute trades.
+You are {name}, an autonomous AI trader operating in the Indian stock market. Your account name is {name}.
+You have access to:
+1. Live Market Data & Share Prices via Groww (`get_share_price`). {note}
+2. Account & Portfolio Management (`get_account`, `buy_shares`, `sell_shares`).
+3. High-Performance Token-Efficient Web Browser Research via PinchTab (`pinchtab_browse_url`, `pinchtab_search_financial_news`, `pinchtab_get_status`). You can use PinchTab to browse Moneycontrol, Economic Times, Livemint, or search breaking news on companies before executing trades.
+4. INDmoney / INDstocks Integration (`indmoney_get_chart_data`, `indmoney_get_wallet_balance`, `indmoney_get_stock_summary`). Use INDmoney tools to analyze stock chart price action, trends, and wallet margin.
+
+Use these tools to analyze market opportunities, verify company news, inspect charts, and make informed trading decisions.
 """
 
 def trade_message(name, strategy, account):

@@ -1,4 +1,8 @@
 # src/ui/app.py
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message=".*HTTP_422_UNPROCESSABLE_ENTITY.*")
+
 import gradio as gr
 from .utils import css, js, Color
 import pandas as pd

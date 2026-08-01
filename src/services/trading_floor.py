@@ -1,4 +1,8 @@
 # src/services/trading_floor.py
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message=".*HTTP_422_UNPROCESSABLE_ENTITY.*")
+
 from ..trading_agents.trader import Trader
 from typing import List
 import asyncio

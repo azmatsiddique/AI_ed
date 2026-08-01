@@ -1,26 +1,20 @@
-# market.py
+# src/core/market.py
 """
-Market data adapter for Groww (replaces Polygon).
-- Uses GROWW_API_KEY (or GROWW_CLIENT_ID/GROWW_CLIENT_SECRET) via env.
-- You must fill in actual Groww API endpoints / auth flow below.
-- Falls back to a deterministic pseudo-random price if Groww isn't configured.
+Market data adapter with pluggable Provider Registry.
+Zero special-case if-statements in core price lookups.
 """
 
-import logging
-from functools import lru_cache
+from abc import ABC, abstractmethod
 from datetime import datetime, timezone, timedelta
+from functools import lru_cache
+import logging
 import os
 import random
 import requests
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 logger = logging.getLogger("market")
 
-GROWW_API_KEY = os.getenv("GROWW_API_KEY")  # primary key (if Groww provides one)
-GROWW_BASE_URL = os.getenv("GROWW_BASE_URL", "https://api.groww.in")  # placeholder
-GROWW_TOKEN = os.getenv("GROWW_TOKEN")  # if you have an oauth token
-
-# small in-memory cache for realtime calls (non-persistent)
 _price_cache: Dict[str, float] = {}
 _CACHE_TTL_SECONDS = int(os.getenv("GROWW_CACHE_TTL_SECONDS", "5"))
 
@@ -31,102 +25,134 @@ def _format_fallback(symbol: str) -> float:
     return float(round(random.uniform(10.0, 1000.0), 2))
 
 
-def _groww_headers() -> Dict[str, str]:
-    """
-    Return headers for Groww API calls. Adjust if Groww requires OAuth bearer token,
-    client id + secret, or custom headers.
-    """
-    headers = {"Accept": "application/json", "User-Agent": "azmat-trading/1.0"}
-    if GROWW_API_KEY:
-        headers["x-api-key"] = GROWW_API_KEY
-    if GROWW_TOKEN:
-        headers["Authorization"] = f"Bearer {GROWW_TOKEN}"
-    return headers
+# Abstract Provider Interface
+class MarketProvider(ABC):
+    """Abstract interface for pluggable market data providers."""
+
+    @abstractmethod
+    def supports_symbol(self, symbol: str) -> bool:
+        """Return True if this provider supports quote lookups for the given symbol."""
+        pass
+
+    @abstractmethod
+    def get_price(self, symbol: str) -> Optional[float]:
+        """Fetch current share price or return None if lookup fails/unconfigured."""
+        pass
 
 
-def _call_groww_quote_endpoint(symbol: str) -> Optional[float]:
-    """
-    Call Groww EOD or realtime quote endpoint.
-    """
-    if not (GROWW_API_KEY or GROWW_TOKEN):
-        return None
+class INDmoneyProvider(MarketProvider):
+    """INDmoney / INDstocks provider for US and Indian stock chart data."""
 
-    try:
-        url = f"{GROWW_BASE_URL}/market/v1/quotes"
-        params = {"symbol": symbol}
-        resp = requests.get(url, headers=_groww_headers(), params=params, timeout=4)
-        resp.raise_for_status()
-        data = resp.json()
-        price = None
-        if isinstance(data, dict):
-            if "last_price" in data:
-                price = float(data["last_price"])
-            elif "data" in data and isinstance(data["data"], dict) and "last_price" in data["data"]:
-                price = float(data["data"]["last_price"])
-            elif "last" in data:
-                price = float(data["last"])
-        return price
-    except Exception as exc:
-        logger.warning(f"Groww quote endpoint request failed for symbol '{symbol}': {exc}", exc_info=True)
+    def supports_symbol(self, symbol: str) -> bool:
+        return True
+
+    def get_price(self, symbol: str) -> Optional[float]:
+        try:
+            from src.utils.indmoney_client import INDmoneyClient
+            ind_data = INDmoneyClient().get_stock_chart_data(symbol)
+            if ind_data.get("current_price") is not None:
+                return float(ind_data["current_price"])
+        except Exception as exc:
+            logger.warning(f"INDmoney provider lookup failed for '{symbol}': {exc}", exc_info=True)
         return None
 
 
-USE_GROWW = os.getenv("USE_GROWW", "true").lower() in ("true", "1", "yes")
-USE_INDMONEY = os.getenv("USE_INDMONEY", "true").lower() in ("true", "1", "yes")
-USE_MOOMOO = os.getenv("USE_MOOMOO", "true").lower() in ("true", "1", "yes")
+class MoomooProvider(MarketProvider):
+    """Moomoo OpenD API provider for US & Global stock quotes."""
+
+    def supports_symbol(self, symbol: str) -> bool:
+        clean = symbol.upper().strip()
+        return clean.startswith("US.") or clean.startswith("HK.")
+
+    def get_price(self, symbol: str) -> Optional[float]:
+        try:
+            from src.utils.moomoo_client import MoomooClient
+            moo_data = MoomooClient().get_stock_quote(symbol)
+            if moo_data.get("last_price") is not None and moo_data.get("last_price") > 0:
+                return float(moo_data["last_price"])
+        except Exception as exc:
+            logger.warning(f"Moomoo provider lookup failed for '{symbol}': {exc}", exc_info=True)
+        return None
+
+
+class GrowwProvider(MarketProvider):
+    """Groww EOD and realtime quote provider for Indian equities (NSE/BSE)."""
+
+    def __init__(self):
+        self.api_key = os.getenv("GROWW_API_KEY")
+        self.base_url = os.getenv("GROWW_BASE_URL", "https://api.groww.in")
+        self.token = os.getenv("GROWW_TOKEN")
+
+    def _headers(self) -> Dict[str, str]:
+        headers = {"Accept": "application/json", "User-Agent": "azmat-trading/1.0"}
+        if self.api_key:
+            headers["x-api-key"] = self.api_key
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        return headers
+
+    def supports_symbol(self, symbol: str) -> bool:
+        clean = symbol.upper().strip()
+        return not (clean.startswith("US.") or clean.startswith("HK."))
+
+    def get_price(self, symbol: str) -> Optional[float]:
+        if not (self.api_key or self.token):
+            return None
+        try:
+            url = f"{self.base_url}/market/v1/quotes"
+            resp = requests.get(url, headers=self._headers(), params={"symbol": symbol}, timeout=4)
+            resp.raise_for_status()
+            data = resp.json()
+            if isinstance(data, dict):
+                if "last_price" in data:
+                    return float(data["last_price"])
+                if "data" in data and isinstance(data["data"], dict) and "last_price" in data["data"]:
+                    return float(data["data"]["last_price"])
+                if "last" in data:
+                    return float(data["last"])
+        except Exception as exc:
+            logger.warning(f"Groww provider lookup failed for '{symbol}': {exc}", exc_info=True)
+        return None
+
+
+def _build_provider_registry() -> List[MarketProvider]:
+    """Dynamically register market providers based on feature flags."""
+    registry = []
+    if os.getenv("USE_INDMONEY", "true").lower() in ("true", "1", "yes"):
+        registry.append(INDmoneyProvider())
+    if os.getenv("USE_MOOMOO", "true").lower() in ("true", "1", "yes"):
+        registry.append(MoomooProvider())
+    if os.getenv("USE_GROWW", "true").lower() in ("true", "1", "yes"):
+        registry.append(GrowwProvider())
+    return registry
+
+
+_PROVIDERS = _build_provider_registry()
 
 
 def get_share_price(symbol: str) -> float:
     """
-    Returns current share price for symbol in INR.
-    Respects USE_INDMONEY, USE_MOOMOO, and USE_GROWW feature flags.
+    Zero-special-case market price resolver over active Provider Registry.
     """
-    # quick cache hit to avoid spamming provider
-    cache_key = symbol.upper()
+    cache_key = symbol.upper().strip()
     now_ts = int(datetime.now(tz=timezone.utc).timestamp())
 
-    # simple TTL cache using dict storing (timestamp, price)
     cached = _price_cache.get(cache_key)
     if cached:
         ts, price = cached
         if now_ts - ts <= _CACHE_TTL_SECONDS:
             return price
 
-    # 1. Try Moomoo quote if USE_MOOMOO is enabled and symbol is US/Global
-    if USE_MOOMOO and (cache_key.startswith("US.") or cache_key.startswith("HK.")):
-        try:
-            from src.utils.moomoo_client import MoomooClient
-            moo_data = MoomooClient().get_stock_quote(cache_key)
-            if moo_data.get("last_price") is not None and moo_data.get("last_price") > 0:
-                price = float(moo_data["last_price"])
+    for provider in _PROVIDERS:
+        if provider.supports_symbol(cache_key):
+            price = provider.get_price(cache_key)
+            if price is not None:
                 _price_cache[cache_key] = (now_ts, price)
                 return price
-        except Exception as exc:
-            logger.warning(f"Moomoo quote lookup failed for '{cache_key}': {exc}", exc_info=True)
 
-    # 2. Try INDmoney quote if USE_INDMONEY is enabled
-    if USE_INDMONEY:
-        try:
-            from src.utils.indmoney_client import INDmoneyClient
-            ind_data = INDmoneyClient().get_stock_chart_data(cache_key)
-            if ind_data.get("current_price") is not None:
-                price = float(ind_data["current_price"])
-                _price_cache[cache_key] = (now_ts, price)
-                return price
-        except Exception as exc:
-            logger.warning(f"INDmoney chart quote lookup failed for '{cache_key}': {exc}", exc_info=True)
-
-    # 3. Try Groww realtime quote if USE_GROWW is enabled
-    if USE_GROWW:
-        price = _call_groww_quote_endpoint(cache_key)
-        if price is not None:
-            _price_cache[cache_key] = (now_ts, price)
-            return price
-
-    # 4. Fallback to deterministic pseudo-random
     price = _format_fallback(cache_key)
     logger.warning(
-        f"[SYNTHETIC FALLBACK USED] All live market APIs failed/unconfigured for '{cache_key}'. "
+        f"[SYNTHETIC FALLBACK USED] All registered providers failed/unconfigured for '{cache_key}'. "
         f"Generated fallback price: ₹{price}"
     )
     _price_cache[cache_key] = (now_ts, price)
@@ -138,22 +164,20 @@ def get_historical_close(symbol: str, date_iso: str) -> float:
     """
     Get historical close for symbol at date (YYYY-MM-DD).
     """
-    try:
-        if not (GROWW_API_KEY or GROWW_TOKEN):
-            raise RuntimeError("No Groww API credentials configured.")
-
-        url = f"{GROWW_BASE_URL}/market/v1/history"
-        params = {"symbol": symbol, "date": date_iso}
-        resp = requests.get(url, headers=_groww_headers(), params=params, timeout=6)
-        resp.raise_for_status()
-        payload = resp.json()
-        if isinstance(payload, dict):
-            if "close" in payload:
-                return float(payload["close"])
-            if "data" in payload and isinstance(payload["data"], dict) and "close" in payload["data"]:
-                return float(payload["data"]["close"])
-    except Exception as exc:
-        logger.warning(f"Historical close request failed for '{symbol}' ({date_iso}): {exc}", exc_info=True)
+    groww = GrowwProvider()
+    if groww.supports_symbol(symbol):
+        try:
+            url = f"{groww.base_url}/market/v1/history"
+            resp = requests.get(url, headers=groww._headers(), params={"symbol": symbol, "date": date_iso}, timeout=6)
+            resp.raise_for_status()
+            payload = resp.json()
+            if isinstance(payload, dict):
+                if "close" in payload:
+                    return float(payload["close"])
+                if "data" in payload and isinstance(payload["data"], dict) and "close" in payload["data"]:
+                    return float(payload["data"]["close"])
+        except Exception as exc:
+            logger.warning(f"Historical close request failed for '{symbol}' ({date_iso}): {exc}", exc_info=True)
 
     fallback_p = _format_fallback(symbol)
     logger.warning(f"[SYNTHETIC FALLBACK USED] Historical close for '{symbol}' fallback: ₹{fallback_p}")
@@ -162,19 +186,12 @@ def get_historical_close(symbol: str, date_iso: str) -> float:
 
 def is_market_open(now_utc: Optional[datetime] = None) -> bool:
     """
-    Return True if Indian equities market is open now.
-
-    Simplified rules:
-    - Monday to Friday only
-    - 09:15 to 15:30 India Standard Time (IST, UTC+5:30)
-    - Does not account for exchange holidays or special sessions
+    Return True if Indian equities market is open now (Mon-Fri 09:15-15:30 IST).
     """
     if now_utc is None:
         now_utc = datetime.now(tz=timezone.utc)
 
     ist = now_utc.astimezone(timezone(timedelta(hours=5, minutes=30)))
-
-    # 0=Mon, 6=Sun
     if ist.weekday() >= 5:
         return False
 

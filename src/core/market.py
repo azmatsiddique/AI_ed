@@ -19,11 +19,6 @@ _price_cache: Dict[str, float] = {}
 _CACHE_TTL_SECONDS = int(os.getenv("GROWW_CACHE_TTL_SECONDS", "5"))
 
 
-def _format_fallback(symbol: str) -> float:
-    """Deterministic fallback so test runs are repeatable across runs."""
-    random.seed(symbol)
-    return float(round(random.uniform(10.0, 1000.0), 2))
-
 
 # Abstract Provider Interface
 class MarketProvider(ABC):
@@ -133,6 +128,7 @@ _PROVIDERS = _build_provider_registry()
 def get_share_price(symbol: str) -> float:
     """
     Zero-special-case market price resolver over active Provider Registry.
+    Fails loudly with RuntimeError if live market data is unavailable.
     """
     cache_key = symbol.upper().strip()
     now_ts = int(datetime.now(tz=timezone.utc).timestamp())
@@ -150,19 +146,15 @@ def get_share_price(symbol: str) -> float:
                 _price_cache[cache_key] = (now_ts, price)
                 return price
 
-    price = _format_fallback(cache_key)
-    logger.warning(
-        f"[SYNTHETIC FALLBACK USED] All registered providers failed/unconfigured for '{cache_key}'. "
-        f"Generated fallback price: ₹{price}"
-    )
-    _price_cache[cache_key] = (now_ts, price)
-    return price
+    logger.error(f"HARD MARKET FAILURE: All registered providers failed/unconfigured for '{cache_key}'.")
+    raise RuntimeError(f"Live market quote unavailable for '{cache_key}'. Halting execution to prevent trading on unverified data.")
 
 
 @lru_cache(maxsize=256)
 def get_historical_close(symbol: str, date_iso: str) -> float:
     """
     Get historical close for symbol at date (YYYY-MM-DD).
+    Fails loudly if provider history is unavailable.
     """
     groww = GrowwProvider()
     if groww.supports_symbol(symbol):
@@ -179,9 +171,7 @@ def get_historical_close(symbol: str, date_iso: str) -> float:
         except Exception as exc:
             logger.warning(f"Historical close request failed for '{symbol}' ({date_iso}): {exc}", exc_info=True)
 
-    fallback_p = _format_fallback(symbol)
-    logger.warning(f"[SYNTHETIC FALLBACK USED] Historical close for '{symbol}' fallback: ₹{fallback_p}")
-    return fallback_p
+    raise RuntimeError(f"Historical close price unavailable for '{symbol}' ({date_iso}).")
 
 
 def is_market_open(now_utc: Optional[datetime] = None) -> bool:

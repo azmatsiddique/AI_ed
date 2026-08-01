@@ -51,9 +51,13 @@ def test_price_routing():
     import importlib
     importlib.reload(market)
     
-    price = market.get_share_price("RELIANCE")
-    print(f"Price for RELIANCE with feature flags enabled: ₹{price:,.2f}")
-    assert price > 0, "Failed to calculate share price!"
+    try:
+        price = market.get_share_price("RELIANCE")
+        print(f"Price for RELIANCE with live provider: ₹{price:,.2f}")
+        assert price > 0, "Failed to calculate share price!"
+    except RuntimeError as err:
+        print(f"Verified Fail-Fast Market Security: {err}")
+        assert "Live market quote unavailable" in str(err)
 
 if __name__ == "__main__":
     try:

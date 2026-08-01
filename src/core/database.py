@@ -115,49 +115,49 @@ async def async_write_account(name: str, account_dict: Dict[str, Any]) -> None:
         await db.execute("PRAGMA journal_mode=WAL;")
         await db.execute("PRAGMA foreign_keys=ON;")
 
-        # Upsert account row
-        await db.execute("""
-            INSERT INTO accounts (name, balance, strategy)
-            VALUES (?, ?, ?)
-            ON CONFLICT(name) DO UPDATE SET
-                balance=excluded.balance,
-                strategy=excluded.strategy
-        """, (acc_name, balance_str, strategy))
-
-        # Replace holdings
-        await db.execute("DELETE FROM holdings WHERE account_name = ?", (acc_name,))
-        for sym, qty in holdings.items():
-            if qty > 0:
-                await db.execute("""
-                    INSERT INTO holdings (account_name, symbol, quantity)
-                    VALUES (?, ?, ?)
-                """, (acc_name, sym.upper(), qty))
-
-        # Replace transactions
-        await db.execute("DELETE FROM transactions WHERE account_name = ?", (acc_name,))
-        for t in transactions:
+        # Atomic Transaction Block
+        async with db.transaction():
+            # Upsert account row
             await db.execute("""
-                INSERT INTO transactions (account_name, symbol, quantity, price, timestamp, rationale)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                acc_name, 
-                t.get("symbol", "").upper(), 
-                t.get("quantity", 0), 
-                str(t.get("price", "0.0")), 
-                t.get("timestamp", ""), 
-                t.get("rationale", "")
-            ))
+                INSERT INTO accounts (name, balance, strategy)
+                VALUES (?, ?, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                    balance=excluded.balance,
+                    strategy=excluded.strategy
+            """, (acc_name, balance_str, strategy))
 
-        # Replace portfolio history
-        await db.execute("DELETE FROM portfolio_history WHERE account_name = ?", (acc_name,))
-        for ts_entry in history:
-            if isinstance(ts_entry, (list, tuple)) and len(ts_entry) == 2:
+            # Replace holdings
+            await db.execute("DELETE FROM holdings WHERE account_name = ?", (acc_name,))
+            for sym, qty in holdings.items():
+                if qty > 0:
+                    await db.execute("""
+                        INSERT INTO holdings (account_name, symbol, quantity)
+                        VALUES (?, ?, ?)
+                    """, (acc_name, sym.upper(), qty))
+
+            # Replace transactions
+            await db.execute("DELETE FROM transactions WHERE account_name = ?", (acc_name,))
+            for t in transactions:
                 await db.execute("""
-                    INSERT INTO portfolio_history (account_name, timestamp, portfolio_value)
-                    VALUES (?, ?, ?)
-                """, (acc_name, str(ts_entry[0]), str(ts_entry[1])))
+                    INSERT INTO transactions (account_name, symbol, quantity, price, timestamp, rationale)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    acc_name, 
+                    t.get("symbol", "").upper(), 
+                    t.get("quantity", 0), 
+                    str(t.get("price", "0.0")), 
+                    t.get("timestamp", ""), 
+                    t.get("rationale", "")
+                ))
 
-        await db.commit()
+            # Replace portfolio history
+            await db.execute("DELETE FROM portfolio_history WHERE account_name = ?", (acc_name,))
+            for ts_entry in history:
+                if isinstance(ts_entry, (list, tuple)) and len(ts_entry) == 2:
+                    await db.execute("""
+                        INSERT INTO portfolio_history (account_name, timestamp, portfolio_value)
+                        VALUES (?, ?, ?)
+                    """, (acc_name, str(ts_entry[0]), str(ts_entry[1])))
 
 
 async def async_read_account(name: str) -> Optional[Dict[str, Any]]:

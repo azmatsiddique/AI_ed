@@ -4,6 +4,7 @@ Market data adapter with pluggable Provider Registry.
 Zero special-case if-statements in core price lookups.
 """
 
+from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone, timedelta
 from functools import lru_cache
@@ -11,7 +12,7 @@ import logging
 import os
 import random
 import requests
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 logger = logging.getLogger("market")
 
@@ -19,18 +20,43 @@ _price_cache: Dict[str, float] = {}
 _CACHE_TTL_SECONDS = int(os.getenv("GROWW_CACHE_TTL_SECONDS", "5"))
 
 
+@dataclass
+class Instrument:
+    """Structured financial instrument model specifying symbol, exchange, and asset class."""
+    symbol: str
+    exchange: str = "NSE"        # NSE, BSE, NASDAQ, NYSE, HKEX
+    asset_class: str = "EQUITY"   # EQUITY, ETF, CRYPTO_ETF
+
+    @classmethod
+    def parse(cls, raw: Union[str, "Instrument"]) -> "Instrument":
+        """Parse raw symbol string or return Instrument instance."""
+        if isinstance(raw, Instrument):
+            return raw
+
+        clean = raw.upper().strip()
+        if clean.startswith("US."):
+            return cls(symbol=clean.replace("US.", ""), exchange="NASDAQ", asset_class="EQUITY")
+        elif clean.startswith("HK."):
+            return cls(symbol=clean.replace("HK.", ""), exchange="HKEX", asset_class="EQUITY")
+        elif clean in {"IBIT", "BITO", "GBTC"}:
+            return cls(symbol=clean, exchange="NASDAQ", asset_class="CRYPTO_ETF")
+        elif clean in {"AAPL", "TSLA", "NVDA", "MSFT", "AMZN", "GOOGL", "META", "SPY", "QQQ"}:
+            return cls(symbol=clean, exchange="NASDAQ", asset_class="EQUITY")
+        else:
+            return cls(symbol=clean, exchange="NSE", asset_class="EQUITY")
+
 
 # Abstract Provider Interface
 class MarketProvider(ABC):
     """Abstract interface for pluggable market data providers."""
 
     @abstractmethod
-    def supports_symbol(self, symbol: str) -> bool:
-        """Return True if this provider supports quote lookups for the given symbol."""
+    def supports_instrument(self, inst: Instrument) -> bool:
+        """Return True if this provider supports quote lookups for the given instrument."""
         pass
 
     @abstractmethod
-    def get_price(self, symbol: str) -> Optional[float]:
+    def get_price(self, inst: Instrument) -> Optional[float]:
         """Fetch current share price or return None if lookup fails/unconfigured."""
         pass
 
@@ -38,35 +64,35 @@ class MarketProvider(ABC):
 class INDmoneyProvider(MarketProvider):
     """INDmoney / INDstocks provider for US and Indian stock chart data."""
 
-    def supports_symbol(self, symbol: str) -> bool:
+    def supports_instrument(self, inst: Instrument) -> bool:
         return True
 
-    def get_price(self, symbol: str) -> Optional[float]:
+    def get_price(self, inst: Instrument) -> Optional[float]:
         try:
             from src.utils.indmoney_client import INDmoneyClient
-            ind_data = INDmoneyClient().get_stock_chart_data(symbol)
+            ind_data = INDmoneyClient().get_stock_chart_data(inst.symbol)
             if ind_data.get("current_price") is not None:
                 return float(ind_data["current_price"])
         except Exception as exc:
-            logger.warning(f"INDmoney provider lookup failed for '{symbol}': {exc}", exc_info=True)
+            logger.warning(f"INDmoney provider lookup failed for '{inst.symbol}': {exc}", exc_info=True)
         return None
 
 
 class MoomooProvider(MarketProvider):
     """Moomoo OpenD API provider for US & Global stock quotes."""
 
-    def supports_symbol(self, symbol: str) -> bool:
-        clean = symbol.upper().strip()
-        return clean.startswith("US.") or clean.startswith("HK.")
+    def supports_instrument(self, inst: Instrument) -> bool:
+        return inst.exchange in {"NASDAQ", "NYSE", "HKEX"}
 
-    def get_price(self, symbol: str) -> Optional[float]:
+    def get_price(self, inst: Instrument) -> Optional[float]:
         try:
             from src.utils.moomoo_client import MoomooClient
-            moo_data = MoomooClient().get_stock_quote(symbol)
+            moo_symbol = f"US.{inst.symbol}" if inst.exchange in {"NASDAQ", "NYSE"} else f"HK.{inst.symbol}"
+            moo_data = MoomooClient().get_stock_quote(moo_symbol)
             if moo_data.get("last_price") is not None and moo_data.get("last_price") > 0:
                 return float(moo_data["last_price"])
         except Exception as exc:
-            logger.warning(f"Moomoo provider lookup failed for '{symbol}': {exc}", exc_info=True)
+            logger.warning(f"Moomoo provider lookup failed for '{inst.symbol}': {exc}", exc_info=True)
         return None
 
 
@@ -86,16 +112,15 @@ class GrowwProvider(MarketProvider):
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
 
-    def supports_symbol(self, symbol: str) -> bool:
-        clean = symbol.upper().strip()
-        return not (clean.startswith("US.") or clean.startswith("HK."))
+    def supports_instrument(self, inst: Instrument) -> bool:
+        return inst.exchange in {"NSE", "BSE"}
 
-    def get_price(self, symbol: str) -> Optional[float]:
+    def get_price(self, inst: Instrument) -> Optional[float]:
         if not (self.api_key or self.token):
             return None
         try:
             url = f"{self.base_url}/market/v1/quotes"
-            resp = requests.get(url, headers=self._headers(), params={"symbol": symbol}, timeout=4)
+            resp = requests.get(url, headers=self._headers(), params={"symbol": inst.symbol}, timeout=4)
             resp.raise_for_status()
             data = resp.json()
             if isinstance(data, dict):
@@ -106,7 +131,7 @@ class GrowwProvider(MarketProvider):
                 if "last" in data:
                     return float(data["last"])
         except Exception as exc:
-            logger.warning(f"Groww provider lookup failed for '{symbol}': {exc}", exc_info=True)
+            logger.warning(f"Groww provider lookup failed for '{inst.symbol}': {exc}", exc_info=True)
         return None
 
 
@@ -125,12 +150,13 @@ def _build_provider_registry() -> List[MarketProvider]:
 _PROVIDERS = _build_provider_registry()
 
 
-def get_share_price(symbol: str) -> float:
+def get_share_price(symbol_or_inst: Union[str, Instrument]) -> float:
     """
-    Zero-special-case market price resolver over active Provider Registry.
+    Zero-special-case market price resolver over active Provider Registry and Instrument model.
     Fails loudly with RuntimeError if live market data is unavailable.
     """
-    cache_key = symbol.upper().strip()
+    inst = Instrument.parse(symbol_or_inst)
+    cache_key = inst.symbol.upper().strip()
     now_ts = int(datetime.now(tz=timezone.utc).timestamp())
 
     cached = _price_cache.get(cache_key)
@@ -140,13 +166,13 @@ def get_share_price(symbol: str) -> float:
             return price
 
     for provider in _PROVIDERS:
-        if provider.supports_symbol(cache_key):
-            price = provider.get_price(cache_key)
+        if provider.supports_instrument(inst):
+            price = provider.get_price(inst)
             if price is not None:
                 _price_cache[cache_key] = (now_ts, price)
                 return price
 
-    logger.error(f"HARD MARKET FAILURE: All registered providers failed/unconfigured for '{cache_key}'.")
+    logger.error(f"HARD MARKET FAILURE: All registered providers failed/unconfigured for '{cache_key}' (Exchange: {inst.exchange}).")
     raise RuntimeError(f"Live market quote unavailable for '{cache_key}'. Halting execution to prevent trading on unverified data.")
 
 

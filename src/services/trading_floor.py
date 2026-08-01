@@ -43,12 +43,19 @@ def create_traders() -> List[Trader]:
     return traders
 
 
+import logging
+logger = logging.getLogger("trading_floor")
+
+
 async def run_every_n_minutes():
     add_trace_processor(LogTracer())
     traders = create_traders()
     while True:
         if RUN_EVEN_WHEN_MARKET_IS_CLOSED or _is_market_open():
-            await asyncio.gather(*[trader.run() for trader in traders])
+            results = await asyncio.gather(*[trader.run() for trader in traders], return_exceptions=True)
+            for trader, res in zip(traders, results):
+                if isinstance(res, Exception):
+                    logger.error(f"Trader '{trader.name}' encountered an isolated execution error: {res}", exc_info=res)
         else:
             print("Market is closed, skipping run")
         await asyncio.sleep(RUN_EVERY_N_MINUTES * 60)

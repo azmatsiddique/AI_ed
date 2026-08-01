@@ -1,4 +1,6 @@
 # src/ui/app.py
+"""Gradio dashboard UI for AI Trading Floor driven by TRADER_CONFIGS & async account calls."""
+
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message=".*HTTP_422_UNPROCESSABLE_ENTITY.*")
@@ -6,12 +8,12 @@ warnings.filterwarnings("ignore", message=".*HTTP_422_UNPROCESSABLE_ENTITY.*")
 import gradio as gr
 from .utils import css, js, Color
 import pandas as pd
-from ..services.trading_floor import names, lastnames, short_model_names
 import plotly.express as px
 from ..core.models import Account
 from ..utils.formatting import fmt_inr
-from ..core.database import read_log
+from ..core.database import async_read_log
 from ..core.market import get_share_price
+from ..utils.config import TRADER_CONFIGS, TraderConfig, settings
 
 mapper = {
     "trace": Color.WHITE,
@@ -22,27 +24,32 @@ mapper = {
     "account": Color.RED,
 }
 
-class TraderUI:
-    def __init__(self, name: str, lastname: str, model_name: str):
-        self.name = name
-        self.lastname = lastname
-        self.model_name = model_name
-        self.account = Account.get(name)
 
-    def reload(self):
-        self.account = Account.get(self.name)
+class TraderUI:
+    """UI controller for an individual trader agent."""
+
+    def __init__(self, config: TraderConfig):
+        self.config = config
+        self.name = config.name
+        self.lastname = config.lastname
+        self.model_name = config.short_model_name
+        self.emoji = config.emoji
+        self.color = config.color
+        self.account = None
+
+    async def init_account(self):
+        """Asynchronously load account model."""
+        self.account = await Account.get(self.name)
+        return self
+
+    async def reload(self):
+        """Asynchronously reload account model."""
+        self.account = await Account.get(self.name)
 
     def get_title(self) -> str:
-        emojis = {
-            "warren": "👴",
-            "george": "🦁",
-            "ray": "🧠",
-            "cathie": "🔮"
-        }
-        emoji = emojis.get(self.name.lower(), "🤖")
         return f"""
         <div class="trader-header trader-header-{self.name.lower()}">
-            <span class="trader-avatar">{emoji}</span>
+            <span class="trader-avatar">{self.emoji}</span>
             <div class="trader-meta">
                 <span class="trader-name">{self.name} {self.lastname}</span>
                 <span class="trader-model">{self.model_name}</span>
@@ -51,6 +58,8 @@ class TraderUI:
         """
 
     def get_portfolio_value_df(self) -> pd.DataFrame:
+        if not self.account:
+            return pd.DataFrame(columns=["datetime", "value"])
         df = pd.DataFrame(self.account.portfolio_value_time_series, columns=["datetime", "value"])
         if df.empty:
             return df
@@ -59,20 +68,12 @@ class TraderUI:
 
     def get_portfolio_value_chart(self):
         df = self.get_portfolio_value_df()
-        colors = {
-            "warren": "#3b82f6",
-            "george": "#f59e0b",
-            "ray": "#10b981",
-            "cathie": "#8b5cf6"
-        }
-        color = colors.get(self.name.lower(), "#0d9488")
-        
         if df.empty:
             fig = px.line(pd.DataFrame({"datetime": [], "value": []}), x="datetime", y="value")
         else:
             fig = px.line(df, x="datetime", y="value")
             fig.update_traces(
-                line=dict(color=color, width=2.5),
+                line=dict(color=self.color, width=2.5),
                 hovertemplate="₹%{y:,.2f}<extra></extra>"
             )
             
@@ -83,68 +84,42 @@ class TraderUI:
             plot_bgcolor="rgba(0,0,0,0)",
             hovermode="x unified",
             font=dict(color="#8b949e", size=10),
-            xaxis=dict(
-                showgrid=True,
-                gridcolor="#1f2937",
-                zeroline=False,
-                title="",
-                tickfont=dict(color="#8b949e")
-            ),
-            yaxis=dict(
-                showgrid=True,
-                gridcolor="#1f2937",
-                zeroline=False,
-                title="",
-                tickfont=dict(color="#8b949e")
-            )
+            xaxis=dict(showgrid=True, gridcolor="#1f2937", zeroline=False, title="", tickfont=dict(color="#8b949e")),
+            yaxis=dict(showgrid=True, gridcolor="#1f2937", zeroline=False, title="", tickfont=dict(color="#8b949e"))
         )
         return fig
 
     def get_sparkline_chart(self):
         df = self.get_portfolio_value_df()
-        colors = {
-            "warren": "#3b82f6",
-            "george": "#f59e0b",
-            "ray": "#10b981",
-            "cathie": "#8b5cf6"
-        }
-        color = colors.get(self.name.lower(), "#0d9488")
-        
         if df.empty:
             fig = px.line(pd.DataFrame({"datetime": [], "value": []}), x="datetime", y="value")
         else:
             fig = px.line(df, x="datetime", y="value")
-            fig.update_traces(
-                line=dict(color=color, width=2.0),
-                hoverinfo="skip"
-            )
+            fig.update_traces(line=dict(color=self.color, width=2.0), hoverinfo="skip")
             
         fig.update_layout(
             height=70,
             margin=dict(l=5, r=5, t=5, b=5),
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
-            xaxis=dict(
-                visible=False,
-                showgrid=False,
-                zeroline=False
-            ),
-            yaxis=dict(
-                visible=False,
-                showgrid=False,
-                zeroline=False
-            ),
+            xaxis=dict(visible=False, showgrid=False, zeroline=False),
+            yaxis=dict(visible=False, showgrid=False, zeroline=False),
             showlegend=False
         )
         return fig
 
     def get_holdings_df(self) -> pd.DataFrame:
+        if not self.account:
+            return pd.DataFrame(columns=["Symbol", "Quantity", "Price", "Total Value"])
         holdings = self.account.get_holdings()
         if not holdings:
             return pd.DataFrame(columns=["Symbol", "Quantity", "Price", "Total Value"])
         rows = []
         for symbol, qty in holdings.items():
-            price = get_share_price(symbol)
+            try:
+                price = get_share_price(symbol)
+            except Exception:
+                price = 0.0
             val = qty * price
             rows.append({
                 "Symbol": symbol,
@@ -155,12 +130,13 @@ class TraderUI:
         return pd.DataFrame(rows)
 
     def get_transactions_html(self) -> str:
+        if not self.account:
+            return "<div class='no-tx'>No transactions recorded yet.</div>"
         transactions = self.account.list_transactions()
         if not transactions:
             return "<div class='no-tx'>No transactions recorded yet.</div>"
         
         sorted_tx = sorted(transactions, key=lambda x: x["timestamp"], reverse=True)
-        
         html = "<div class='tx-timeline'>"
         for t in sorted_tx:
             qty = t["quantity"]
@@ -169,9 +145,8 @@ class TraderUI:
             badge_class = "tx-badge-buy" if is_buy else "tx-badge-sell"
             card_class = "tx-card-buy" if is_buy else "tx-card-sell"
             display_qty = abs(qty)
-            
             price_formatted = fmt_inr(t["price"])
-            total_formatted = fmt_inr(display_qty * t["price"])
+            total_formatted = fmt_inr(display_qty * float(t["price"]))
             
             html += f"""
             <div class="tx-item {card_class}">
@@ -191,24 +166,23 @@ class TraderUI:
         html += "</div>"
         return html
 
-    def get_portfolio_value(self) -> str:
-        self.reload()
+    async def get_portfolio_value(self) -> str:
+        await self.reload()
         portfolio_value = float(self.account.calculate_portfolio_value() or 0.0)
         pnl = float(self.account.calculate_profit_loss(portfolio_value) or 0.0)
         badge_class = "pv-badge-up" if pnl >= 0 else "pv-badge-down"
         pnl_badge_class = "pnl-up" if pnl >= 0 else "pnl-down"
         sign = "▲" if pnl >= 0 else "▼"
         
-        html = f"""
+        return f"""
         <div class="portfolio-value-badge {badge_class}">
             <div class="portfolio-value-amount">{fmt_inr(portfolio_value)}</div>
             <div class="portfolio-value-pnl {pnl_badge_class}">{sign} {fmt_inr(pnl)}</div>
         </div>
         """
-        return html
 
-    def get_logs(self, previous=None) -> str:
-        logs = read_log(self.name, last_n=30)
+    async def get_logs(self, previous=None) -> str:
+        logs = await async_read_log(self.name, last_n=30)
         logs_list = list(logs)
         logs_list.reverse()
         
@@ -237,42 +211,24 @@ class TraderUI:
             return html
         return gr.update()
 
-    def get_overview_card(self) -> str:
-        self.reload()
+    async def get_overview_card(self) -> str:
+        await self.reload()
         portfolio_value = float(self.account.calculate_portfolio_value() or 0.0)
         pnl = float(self.account.calculate_profit_loss(portfolio_value) or 0.0)
-        
-        emojis = {
-            "warren": "👴",
-            "george": "🦁",
-            "ray": "🧠",
-            "cathie": "🔮"
-        }
-        emoji = emojis.get(self.name.lower(), "🤖")
         
         pnl_class = "pnl-up" if pnl >= 0 else "pnl-down"
         pnl_badge = f"<span class='overview-pnl-badge {pnl_class}'>{'▲' if pnl >= 0 else '▼'} {fmt_inr(pnl)}</span>"
         
         holdings = self.account.get_holdings()
-        holdings_summary = []
-        for s, q in list(holdings.items())[:3]:
-            holdings_summary.append(f"{s} ({q})")
+        holdings_summary = [f"{s} ({q})" for s, q in list(holdings.items())[:3]]
         holdings_text = ", ".join(holdings_summary) if holdings_summary else "No holdings"
         if len(holdings) > 3:
             holdings_text += "..."
             
-        colors = {
-            "warren": "warren",
-            "george": "george",
-            "ray": "ray",
-            "cathie": "cathie"
-        }
-        trader_color = colors.get(self.name.lower(), "default")
-        
-        card_html = f"""
-        <div class="overview-card overview-card-{trader_color}">
+        return f"""
+        <div class="overview-card overview-card-{self.name.lower()}">
             <div class="overview-card-header">
-                <div class="overview-card-avatar">{emoji}</div>
+                <div class="overview-card-avatar">{self.emoji}</div>
                 <div class="overview-card-meta">
                     <span class="overview-card-name">{self.name} {self.lastname}</span>
                     <span class="overview-card-model">{self.model_name}</span>
@@ -290,21 +246,14 @@ class TraderUI:
             </div>
         </div>
         """
-        return card_html
 
 
-import os
-
-def get_global_header_html(traders) -> str:
+async def get_global_header_html(traders: list[TraderUI]) -> str:
     total_val = 0.0
     total_pnl = 0.0
 
-    use_groww = os.getenv("USE_GROWW", "true").lower() in ("true", "1", "yes")
-    use_indmoney = os.getenv("USE_INDMONEY", "true").lower() in ("true", "1", "yes")
-    use_moomoo = os.getenv("USE_MOOMOO", "true").lower() in ("true", "1", "yes")
-    
     for t in traders:
-        t.reload()
+        await t.reload()
         pv = float(t.account.calculate_portfolio_value() or 0.0)
         pnl = float(t.account.calculate_profit_loss(pv) or 0.0)
         total_val += pv
@@ -313,37 +262,7 @@ def get_global_header_html(traders) -> str:
     pnl_class = "global-pnl-up" if total_pnl >= 0 else "global-pnl-down"
     sign = "▲" if total_pnl >= 0 else "▼"
     
-    groww_badge = """
-            <div class="header-stat-box">
-                <span class="stat-label">GROWW API MARKET</span>
-                <div class="status-indicator-row">
-                    <span class="status-dot pulse" style="background-color: #3b82f6; box-shadow: 0 0 8px #3b82f6;"></span>
-                    <span class="status-text" style="color: #3b82f6;">ACTIVE</span>
-                </div>
-            </div>
-    """ if use_groww else ""
-
-    indmoney_badge = """
-            <div class="header-stat-box">
-                <span class="stat-label">INDMONEY WALLET & CHARTS</span>
-                <div class="status-indicator-row">
-                    <span class="status-dot pulse" style="background-color: #fbbf24; box-shadow: 0 0 8px #fbbf24;"></span>
-                    <span class="status-text" style="color: #fbbf24;">CONNECTED</span>
-                </div>
-            </div>
-    """ if use_indmoney else ""
-
-    moomoo_badge = """
-            <div class="header-stat-box">
-                <span class="stat-label">MOOMOO API SKILLS</span>
-                <div class="status-indicator-row">
-                    <span class="status-dot pulse" style="background-color: #8b5cf6; box-shadow: 0 0 8px #8b5cf6;"></span>
-                    <span class="status-text" style="color: #8b5cf6;">ACTIVE</span>
-                </div>
-            </div>
-    """ if use_moomoo else ""
-
-    html = f"""
+    return f"""
     <div class="global-header">
         <div class="header-logo-section">
             <span class="header-logo">⚡</span>
@@ -371,9 +290,6 @@ def get_global_header_html(traders) -> str:
                     <span class="status-text" style="color: #00e5cc;">ONLINE (PORT 9867)</span>
                 </div>
             </div>
-            {groww_badge}
-            {indmoney_badge}
-            {moomoo_badge}
             <div class="header-stat-box">
                 <span class="stat-label">DESK STATUS</span>
                 <div class="status-indicator-row">
@@ -384,23 +300,22 @@ def get_global_header_html(traders) -> str:
         </div>
     </div>
     """
-    return html
 
 
-def get_all_transactions_html(traders) -> str:
+def get_all_transactions_html(traders: list[TraderUI]) -> str:
     all_txs = []
     for t in traders:
-        txs = t.account.list_transactions()
-        for tx in txs:
-            tx = tx.copy()
-            tx["trader"] = t.name
-            all_txs.append(tx)
+        if t.account:
+            txs = t.account.list_transactions()
+            for tx in txs:
+                tx = tx.copy()
+                tx["trader"] = t.name
+                all_txs.append(tx)
             
     if not all_txs:
         return "<div class='no-tx'>No transactions recorded yet across the desk.</div>"
         
     sorted_txs = sorted(all_txs, key=lambda x: x["timestamp"], reverse=True)
-    
     html = "<div class='tx-timeline all-desk-timeline'>"
     for t in sorted_txs[:15]:
         qty = t["quantity"]
@@ -409,22 +324,13 @@ def get_all_transactions_html(traders) -> str:
         badge_class = "tx-badge-buy" if is_buy else "tx-badge-sell"
         card_class = "tx-card-buy" if is_buy else "tx-card-sell"
         display_qty = abs(qty)
-        
-        trader_colors = {
-            "warren": "var(--warren-color)",
-            "george": "var(--george-color)",
-            "ray": "var(--ray-color)",
-            "cathie": "var(--cathie-color)"
-        }
-        t_color = trader_colors.get(t["trader"].lower(), "#ffffff")
-        
         price_formatted = fmt_inr(t["price"])
-        total_formatted = fmt_inr(display_qty * t["price"])
+        total_formatted = fmt_inr(display_qty * float(t["price"]))
         
         html += f"""
         <div class="tx-item {card_class}">
             <div class="tx-row">
-                <span class="tx-trader-pill" style="border: 1px solid {t_color}; color: {t_color};">{t['trader'].upper()}</span>
+                <span class="tx-trader-pill">{t['trader'].upper()}</span>
                 <span class="tx-badge {badge_class}">{tx_type}</span>
                 <span class="tx-symbol">{t['symbol']}</span>
                 <span class="tx-qty">{display_qty} shares</span>
@@ -441,20 +347,20 @@ def get_all_transactions_html(traders) -> str:
     return html
 
 
-def make_data_refresh_fn(traders):
-    def refresh_data():
+def make_data_refresh_fn(traders: list[TraderUI]):
+    async def refresh_data():
         for t in traders:
-            t.reload()
+            await t.reload()
             
-        header_html = get_global_header_html(traders)
+        header_html = await get_global_header_html(traders)
         all_tx_html = get_all_transactions_html(traders)
         
         results = [header_html, all_tx_html]
         
         for t in traders:
-            results.append(t.get_overview_card())
+            results.append(await t.get_overview_card())
             results.append(t.get_sparkline_chart())
-            results.append(t.get_portfolio_value())
+            results.append(await t.get_portfolio_value())
             results.append(t.get_portfolio_value_chart())
             results.append(t.get_holdings_df())
             results.append(t.get_transactions_html())
@@ -464,21 +370,27 @@ def make_data_refresh_fn(traders):
 
 
 def create_ui():
-    traders = [TraderUI(n, ln, mn) for n, ln, mn in zip(names, lastnames, short_model_names)]
+    import asyncio
+    traders = [TraderUI(cfg) for cfg in TRADER_CONFIGS]
+    
+    # Pre-initialize accounts synchronously for initial render
+    async def _init_all():
+        for t in traders:
+            await t.init_account()
+    asyncio.run(_init_all())
     
     with gr.Blocks(title="AI Trading Floor Terminal") as ui:
         # 1. Global Header Status
-        global_header = gr.HTML(value=lambda: get_global_header_html(traders))
+        global_header = gr.HTML(value=lambda: asyncio.run(get_global_header_html(traders)))
         
         trader_components = []
         
-        with gr.Tabs() as tabs:
-            # Tab 1: Desk Overview
+        with gr.Tabs():
             with gr.TabItem("📊 Desk Overview"):
                 with gr.Row():
                     for t in traders:
                         with gr.Column(scale=1, min_width=250):
-                            card = gr.HTML(value=t.get_overview_card())
+                            card = gr.HTML(value=asyncio.run(t.get_overview_card()))
                             spark = gr.Plot(value=t.get_sparkline_chart(), show_label=False)
                             
                             t_comp = {
@@ -491,22 +403,12 @@ def create_ui():
                 gr.Markdown("### 📜 Real-Time Desk Transactions Feed")
                 all_tx_feed = gr.HTML(value=lambda: get_all_transactions_html(traders))
                 
-            # Trader detailed terminals
             for i, t in enumerate(traders):
-                emojis = {
-                    "warren": "👴",
-                    "george": "🦁",
-                    "ray": "🧠",
-                    "cathie": "🔮"
-                }
-                emoji = emojis.get(t.name.lower(), "🤖")
-                
-                with gr.TabItem(f"{emoji} {t.name} Terminal"):
+                with gr.TabItem(f"{t.emoji} {t.name} Terminal"):
                     with gr.Row():
-                        # Left side: Identity, charts, holdings
                         with gr.Column(scale=3, min_width=400):
                             title_html = gr.HTML(value=t.get_title())
-                            pv_badge = gr.HTML(value=t.get_portfolio_value())
+                            pv_badge = gr.HTML(value=asyncio.run(t.get_portfolio_value()))
                             chart = gr.Plot(value=t.get_portfolio_value_chart(), show_label=False)
                             holdings = gr.Dataframe(
                                 value=t.get_holdings_df(),
@@ -516,15 +418,13 @@ def create_ui():
                                 interactive=False
                             )
                             
-                        # Right side: Live console terminal and tx log
                         with gr.Column(scale=2, min_width=300):
                             gr.Markdown(f"### 🖥️ {t.name.upper()} Agent Live Console")
-                            log = gr.HTML(value=t.get_logs())
+                            log = gr.HTML(value=asyncio.run(t.get_logs()))
                             
                             gr.Markdown("### 🕒 Transaction History Timeline")
                             tx_timeline = gr.HTML(value=t.get_transactions_html())
                             
-                        # Save detailed component references
                         trader_components[i].update({
                             "pv_badge": pv_badge,
                             "chart": chart,
@@ -533,7 +433,6 @@ def create_ui():
                             "log": log
                         })
                         
-        # 1. Fast Logs Timer (every 1.5s)
         log_timer = gr.Timer(value=1.5)
         for t_comp in trader_components:
             t_obj = t_comp["trader"]
@@ -545,9 +444,7 @@ def create_ui():
                 show_progress="hidden"
             )
             
-        # 2. Slow Data Timer (every 15s)
         data_timer = gr.Timer(value=15.0)
-        
         data_outputs = [global_header, all_tx_feed]
         for t_comp in trader_components:
             data_outputs.extend([

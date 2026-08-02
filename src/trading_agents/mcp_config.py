@@ -15,7 +15,6 @@ def get_trader_mcp_server_params():
     use_moomoo = os.getenv("USE_MOOMOO", "true").lower() in ("true", "1", "yes")
 
     params = [
-        {"command": "uv", "args": ["run", "-m", "src.mcp_servers.accounts_server"]},
         {"command": "uv", "args": ["run", "-m", "src.mcp_servers.push_server"]},
         {"command": "uv", "args": ["run", "-m", "src.mcp_servers.pinchtab_server"]},
     ]

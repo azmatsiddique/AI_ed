@@ -12,6 +12,7 @@ from typing import List
 from ..trading_agents.trader import Trader
 from ..utils.tracers import LogTracer
 from ..utils.config import settings, TRADER_CONFIGS
+from ..core.database import setup_database
 from agents import add_trace_processor
 
 try:
@@ -33,6 +34,7 @@ def create_traders() -> List[Trader]:
 
 async def run_every_n_minutes():
     """Run active traders on schedule with failure isolation."""
+    await setup_database()
     add_trace_processor(LogTracer())
     traders = create_traders()
     while True:

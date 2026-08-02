@@ -56,6 +56,7 @@ class Account(BaseModel):
     holdings: Dict[str, int]
     transactions: List[Transaction]
     portfolio_value_time_series: List[Tuple[str, float]]
+    live_balance: Optional[Decimal] = None
 
     @classmethod
     async def get(cls, name: str) -> "Account":
@@ -72,10 +73,9 @@ class Account(BaseModel):
             }
             await async_write_account(name, fields)
         
-        # Override balance with real Groww wallet balance if available
+        # Populate real Groww wallet balance separately if available without overwriting DB balance
         if groww_client and groww_client.available():
-            real_balance = Decimal(str(groww_client.get_wallet_balance()))
-            fields["balance"] = real_balance
+            fields["live_balance"] = Decimal(str(groww_client.get_wallet_balance()))
             
         return cls(**fields)
     

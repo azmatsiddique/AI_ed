@@ -73,6 +73,7 @@ def _init_db_sync():
                 FOREIGN KEY (account_name) REFERENCES accounts(name) ON DELETE CASCADE
             )
         """)
+        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_acc_ts_sym ON transactions (account_name, timestamp, symbol);")
 
         # 4. Portfolio History Table
         cursor.execute("""
@@ -84,6 +85,7 @@ def _init_db_sync():
                 FOREIGN KEY (account_name) REFERENCES accounts(name) ON DELETE CASCADE
             )
         """)
+        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_portfolio_history_acc_ts ON portfolio_history (account_name, timestamp);")
 
         # 5. Logs Table
         cursor.execute("""
@@ -131,6 +133,8 @@ def _init_db_sync():
                         cursor.execute("""
                             INSERT INTO transactions (account_name, symbol, quantity, price, timestamp, rationale)
                             VALUES (?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(account_name, timestamp, symbol) DO UPDATE SET
+                                quantity=excluded.quantity, price=excluded.price, rationale=excluded.rationale
                         """, (
                             clean_name,
                             t.get("symbol", "").upper(),
@@ -145,6 +149,7 @@ def _init_db_sync():
                             cursor.execute("""
                                 INSERT INTO portfolio_history (account_name, timestamp, portfolio_value)
                                 VALUES (?, ?, ?)
+                                ON CONFLICT(account_name, timestamp) DO UPDATE SET portfolio_value=excluded.portfolio_value
                             """, (clean_name, str(ts_entry[0]), str(ts_entry[1])))
 
                 cursor.execute("DROP TABLE accounts_legacy")
@@ -155,7 +160,9 @@ def _init_db_sync():
         conn.commit()
 
 
-_init_db_sync()
+async def setup_database() -> None:
+    """Explicit non-blocking database initialization and table schema migration."""
+    await asyncio.to_thread(_init_db_sync)
 
 
 # -------------------------------------------------------------
@@ -194,7 +201,7 @@ db_manager = AsyncDatabaseManager()
 # -------------------------------------------------------------
 
 async def async_write_account(name: str, account_dict: Dict[str, Any]) -> None:
-    """Save account state atomically into normalized relational tables."""
+    """Save account state atomically into normalized relational tables using native SQLite UPSERTs."""
     acc_name = name.lower().strip()
     balance_str = str(account_dict.get("balance", "100000.00"))
     strategy = account_dict.get("strategy", "")
@@ -213,19 +220,34 @@ async def async_write_account(name: str, account_dict: Dict[str, Any]) -> None:
                 strategy=excluded.strategy
         """, (acc_name, balance_str, strategy))
 
-        await db.execute("DELETE FROM holdings WHERE account_name = ?", (acc_name,))
+        active_symbols = set()
         for sym, qty in holdings.items():
+            clean_sym = sym.upper().strip()
             if qty > 0:
+                active_symbols.add(clean_sym)
                 await db.execute("""
                     INSERT INTO holdings (account_name, symbol, quantity)
                     VALUES (?, ?, ?)
-                """, (acc_name, sym.upper(), qty))
+                    ON CONFLICT(account_name, symbol) DO UPDATE SET quantity=excluded.quantity
+                """, (acc_name, clean_sym, qty))
 
-        await db.execute("DELETE FROM transactions WHERE account_name = ?", (acc_name,))
+        if active_symbols:
+            placeholders = ",".join("?" for _ in active_symbols)
+            await db.execute(
+                f"DELETE FROM holdings WHERE account_name = ? AND symbol NOT IN ({placeholders})",
+                (acc_name, *active_symbols)
+            )
+        else:
+            await db.execute("DELETE FROM holdings WHERE account_name = ?", (acc_name,))
+
         for t in transactions:
             await db.execute("""
                 INSERT INTO transactions (account_name, symbol, quantity, price, timestamp, rationale)
                 VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(account_name, timestamp, symbol) DO UPDATE SET
+                    quantity=excluded.quantity,
+                    price=excluded.price,
+                    rationale=excluded.rationale
             """, (
                 acc_name, 
                 t.get("symbol", "").upper(), 
@@ -235,12 +257,13 @@ async def async_write_account(name: str, account_dict: Dict[str, Any]) -> None:
                 t.get("rationale", "")
             ))
 
-        await db.execute("DELETE FROM portfolio_history WHERE account_name = ?", (acc_name,))
         for ts_entry in history:
             if isinstance(ts_entry, (list, tuple)) and len(ts_entry) == 2:
                 await db.execute("""
                     INSERT INTO portfolio_history (account_name, timestamp, portfolio_value)
                     VALUES (?, ?, ?)
+                    ON CONFLICT(account_name, timestamp) DO UPDATE SET
+                        portfolio_value=excluded.portfolio_value
                 """, (acc_name, str(ts_entry[0]), str(ts_entry[1])))
 
         await db.commit()

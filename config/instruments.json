@@ -1,0 +1,14 @@
+{
+  "AAPL": { "symbol": "AAPL", "exchange": "NASDAQ", "asset_class": "EQUITY" },
+  "TSLA": { "symbol": "TSLA", "exchange": "NASDAQ", "asset_class": "EQUITY" },
+  "NVDA": { "symbol": "NVDA", "exchange": "NASDAQ", "asset_class": "EQUITY" },
+  "MSFT": { "symbol": "MSFT", "exchange": "NASDAQ", "asset_class": "EQUITY" },
+  "AMZN": { "symbol": "AMZN", "exchange": "NASDAQ", "asset_class": "EQUITY" },
+  "GOOGL": { "symbol": "GOOGL", "exchange": "NASDAQ", "asset_class": "EQUITY" },
+  "META": { "symbol": "META", "exchange": "NASDAQ", "asset_class": "EQUITY" },
+  "SPY": { "symbol": "SPY", "exchange": "NASDAQ", "asset_class": "EQUITY" },
+  "QQQ": { "symbol": "QQQ", "exchange": "NASDAQ", "asset_class": "EQUITY" },
+  "IBIT": { "symbol": "IBIT", "exchange": "NASDAQ", "asset_class": "CRYPTO_ETF" },
+  "BITO": { "symbol": "BITO", "exchange": "NASDAQ", "asset_class": "CRYPTO_ETF" },
+  "GBTC": { "symbol": "GBTC", "exchange": "NASDAQ", "asset_class": "CRYPTO_ETF" }
+}

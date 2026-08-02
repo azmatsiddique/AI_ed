@@ -11,7 +11,7 @@ import pandas as pd
 import plotly.express as px
 from ..core.models import Account
 from ..utils.formatting import fmt_inr
-from ..core.database import async_read_log
+from ..core.database import async_read_log, setup_database
 from ..core.market import get_share_price
 from ..utils.config import TRADER_CONFIGS, TraderConfig, settings
 
@@ -375,6 +375,7 @@ def create_ui():
     
     # Pre-initialize accounts synchronously for initial render
     async def _init_all():
+        await setup_database()
         for t in traders:
             await t.init_account()
     asyncio.run(_init_all())

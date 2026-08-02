@@ -14,10 +14,32 @@ import random
 import requests
 from typing import Dict, List, Optional, Union
 
+import json
+import pathlib
+
 logger = logging.getLogger("market")
 
 _price_cache: Dict[str, float] = {}
 _CACHE_TTL_SECONDS = int(os.getenv("GROWW_CACHE_TTL_SECONDS", "5"))
+
+
+def _load_instrument_config() -> Dict[str, Dict[str, str]]:
+    """Load optional instrument exchange/asset_class mapping from configuration file."""
+    config_paths = [
+        pathlib.Path("config/instruments.json"),
+        pathlib.Path(__file__).parent.parent.parent / "config" / "instruments.json",
+    ]
+    for p in config_paths:
+        if p.exists():
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as exc:
+                logger.warning(f"Failed to load instrument config from {p}: {exc}")
+    return {}
+
+
+_INSTRUMENT_CONFIG_MAPPING = _load_instrument_config()
 
 
 @dataclass
@@ -29,21 +51,40 @@ class Instrument:
 
     @classmethod
     def parse(cls, raw: Union[str, "Instrument"]) -> "Instrument":
-        """Parse raw symbol string or return Instrument instance."""
+        """Generic rule-based symbol parser with configurable mapping overrides."""
         if isinstance(raw, Instrument):
             return raw
 
         clean = raw.upper().strip()
+
+        # 1. Configured mapping lookup
+        if clean in _INSTRUMENT_CONFIG_MAPPING:
+            cfg = _INSTRUMENT_CONFIG_MAPPING[clean]
+            return cls(
+                symbol=cfg.get("symbol", clean),
+                exchange=cfg.get("exchange", "NSE"),
+                asset_class=cfg.get("asset_class", "EQUITY"),
+            )
+
+        # 2. Explicit prefix rule: EXCHANGE:SYMBOL (e.g. NASDAQ:AAPL, HKEX:9988)
+        if ":" in clean:
+            prefix, sym = clean.split(":", 1)
+            return cls(symbol=sym, exchange=prefix, asset_class="EQUITY")
+
+        # 3. Market prefix rules (US. / HK.)
         if clean.startswith("US."):
             return cls(symbol=clean.replace("US.", ""), exchange="NASDAQ", asset_class="EQUITY")
-        elif clean.startswith("HK."):
+        if clean.startswith("HK."):
             return cls(symbol=clean.replace("HK.", ""), exchange="HKEX", asset_class="EQUITY")
-        elif clean in {"IBIT", "BITO", "GBTC"}:
-            return cls(symbol=clean, exchange="NASDAQ", asset_class="CRYPTO_ETF")
-        elif clean in {"AAPL", "TSLA", "NVDA", "MSFT", "AMZN", "GOOGL", "META", "SPY", "QQQ"}:
-            return cls(symbol=clean, exchange="NASDAQ", asset_class="EQUITY")
-        else:
-            return cls(symbol=clean, exchange="NSE", asset_class="EQUITY")
+
+        # 4. Market suffix rules (.NS / .BO)
+        if clean.endswith(".NS"):
+            return cls(symbol=clean[:-3], exchange="NSE", asset_class="EQUITY")
+        if clean.endswith(".BO"):
+            return cls(symbol=clean[:-3], exchange="BSE", asset_class="EQUITY")
+
+        # 5. Default generic rule
+        return cls(symbol=clean, exchange="NSE", asset_class="EQUITY")
 
 
 # Abstract Provider Interface

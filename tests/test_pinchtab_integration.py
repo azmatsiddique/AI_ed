@@ -20,7 +20,7 @@ def test_pinchtab_client():
 def test_pinchtab_navigation():
     print("\n--- 2. Testing PinchTab Web Navigation & Extraction ---")
     client = PinchtabClient()
-    res = client.browse_and_extract("https://example.com")
+    res = client.browse_and_extract("https://moneycontrol.com")
     print(f"Navigated URL: {res.get('url')}")
     print(f"Title: {res.get('title')}")
     print(f"Extracted Text Snippet:\n{res.get('text', '')[:200]}...")
